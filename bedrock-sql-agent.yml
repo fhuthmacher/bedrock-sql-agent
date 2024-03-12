@@ -1780,23 +1780,7 @@ Resources:
                       "foundationModel": foundation_model,
                       "description": description,
                       "idleSessionTTLInSeconds": 60,
-                      "agentResourceRoleArn": agent_resource_role_arn,
-                      "promptConfigurations": [ 
-                          { 
-                              # "basePromptTemplate": "string",
-                              # "inferenceConfiguration": { 
-                              #     "maximumLength": int,
-                              #     "stopSequences": [ "string" ],
-                              #     "temperature": float,
-                              #     "topK": float,
-                              #     "topP": float
-                              # },
-                              "parserMode": "DEFAULT",
-                              "promptCreationMode": "DEFAULT",
-                              "promptState": "DISABLED",
-                              "promptType": "PRE_PROCESSING"
-                          }
-                      ]
+                      "agentResourceRoleArn": agent_resource_role_arn
 
                   }
 
