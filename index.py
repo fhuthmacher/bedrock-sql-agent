@@ -1,11 +1,8 @@
 import tools
-
+import os 
+import logging
 
 def handler(event, context):
-    # Print the received event to the logs
-    print("Received event: ")
-    print(event)
-
     # Initialize response code to None
     response_code = None
 
@@ -13,36 +10,24 @@ def handler(event, context):
     action = event["actionGroup"]
     api_path = event["apiPath"]
     parameters = event["parameters"]
-    inputText = event["inputText"]
     httpMethod = event["httpMethod"]
-
-    print(f"inputText: {inputText}")
 
     # Get the query value from the parameters
     query = parameters[0]["value"]
-    print(f"Query: {query}")
+    #datasets = parameters[1]["value"]
 
     # Check the api path to determine which tool function to call
-    if api_path == "/query_well_arch_framework":
-        # Call the aws_well_arch_tool from the tools module with the query
-        body = tools.aws_well_arch_tool(query)
+    if api_path == "/run_sql":
+        sql, sql_results = tools.run_sql(query)
         # Create a response body with the result
-        response_body = {"application/json": {"body": str(body)}}
+        response_body = {"application/json": {"body": {"generated_sql_query": str(sql), "sql_query_results" :str(sql_results)}}}
         response_code = 200
-    elif api_path == "/gen_code":
-        # Call the code_gen_tool from the tools module with the query
-        body = tools.code_gen_tool(query)
-        # Create a response body with the result
-        response_body = {"application/json": {"body": str(body)}}
-        response_code = 200
+
     else:
         # If the api path is not recognized, return an error message
         body = {"{}::{} is not a valid api, try another one.".format(action, api_path)}
         response_code = 400
         response_body = {"application/json": {"body": str(body)}}
-
-    # Print the response body to the logs
-    print(f"Response body: {response_body}")
 
     # Create a dictionary containing the response details
     action_response = {

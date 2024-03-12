@@ -1,0 +1,2224 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Amazon Bedrock SQL Agents with Amazon DataZone Tutorial
+Parameters:
+  EnvironmentTag:
+    Description: Enter Environment Tag
+    Type: String
+    Default: 'dev'
+  DataZoneDomainId:
+    Description: Enter DataZone DomainId
+    Type: String
+    Default: 'dzd_b0w3zj39hz6wtj'
+  DatazoneEnvName:
+    Description: Enter DataZone Env Name
+    Type: String
+    Default: 'DefaultDataLake'
+  CIDRPrefix:
+    Description: 'Enter Class B CIDR Prefix (e.g. 192.168, 10.1, 172.16)'
+    Type: String
+    AllowedPattern: '(192\.168)|10\.[0-9][0-9]{0,1}|(172\.([1][6-9]|[2][0-9]|[3][0-1]))'
+    ConstraintDescription: >-
+      must be a valid Private Subnet CIDR Prefix between 192.168 or 10.{0-99} or
+      172.16
+    Default: '192.168'
+  ECRRepoName:
+    Description: ECR repo name
+    Type: String
+    Default: 'sqlagenttools'
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    AllowedValues:
+      - /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Description: Image ID for the EC2 helper instance. DO NOT change this.
+  AgentFoundationModel:
+    Description: Amazon Bedrock Agent Foundation Model
+    Type: String
+    Default: 'anthropic.claude-v2'
+  AgentName:
+    Description: Amazon Bedrock Agent Name
+    Type: String
+    Default: 'sqltstagent'
+  AgentInstruction:
+    Description: Amazon Bedrock Agent Instruction
+    Type: String
+    Default: 'SQLAgent is an automated, AI-powered agent that identifies data sources from the knowledge base and then runs SQL to retrieve the information to answer a user question. Attach the generated SQL in the final response.'
+  AgentActionGroupName:
+    Description: Amazon Bedrock Agent ActionGroupName
+    Type: String
+    Default: 'sqltstgrp'
+  AgentActionGroupDescription:
+    Description: Amazon Bedrock Agent Instruction
+    Type: String
+    Default: 'identifies relevant data stores and tables and then generates and runs SQL query to answer a user question'
+  KnowledgeBaseName:
+    Description: Amazon Bedrock KnowledgeBase Name
+    Type: String
+    Default: 'sqltstkb'
+  KnowledgeBaseDescription:
+    Description: Amazon Bedrock KnowledgeBase Description
+    Type: String
+    Default: 'database tables and schemas'    
+Resources:
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !Join 
+        - ''
+        - - !Ref CIDRPrefix
+          - .0.0/21
+      EnableDnsHostnames: 'true'
+      EnableDnsSupport: 'true'
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref EnvironmentTag
+              - '-vpc'
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref EnvironmentTag
+              - '-igw'
+  AttachInternetGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicSubnet0:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - '0'
+        - !GetAZs ''
+      CidrBlock: !Join 
+        - ''
+        - - !Ref CIDRPrefix
+          - .0.0/24
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref EnvironmentTag
+              - '-sn-pub0'
+  PublicSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - '1'
+        - !GetAZs ''
+      CidrBlock: !Join 
+        - ''
+        - - !Ref CIDRPrefix
+          - .1.0/24
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref EnvironmentTag
+              - '-sn-pub1'
+  PublicSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - '2'
+        - !GetAZs ''
+      CidrBlock: !Join 
+        - ''
+        - - !Ref CIDRPrefix
+          - .2.0/24
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref EnvironmentTag
+              - '-sn-pub2'
+  PrivateSubnetApp0:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - '0'
+        - !GetAZs ''
+      CidrBlock: !Join 
+        - ''
+        - - !Ref CIDRPrefix
+          - .4.0/24
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref EnvironmentTag
+              - '-sn-priv-app0'
+  PrivateSubnetApp1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - '1'
+        - !GetAZs ''
+      CidrBlock: !Join 
+        - ''
+        - - !Ref CIDRPrefix
+          - .5.0/24
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref EnvironmentTag
+              - '-sn-priv-app1'
+  PrivateSubnetApp2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - '2'
+        - !GetAZs ''
+      CidrBlock: !Join 
+        - ''
+        - - !Ref CIDRPrefix
+          - .6.0/24
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref EnvironmentTag
+              - '-sn-priv-app2'
+  PublicRoutingTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref EnvironmentTag
+              - '-rtbl-pub'
+  PublicRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRoutingTable
+  PublicRouteAssociation0:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicRoutingTable
+      SubnetId: !Ref PublicSubnet0
+  PublicRouteAssociation1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicRoutingTable
+      SubnetId: !Ref PublicSubnet1
+  PublicRouteAssociation2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicRoutingTable
+      SubnetId: !Ref PublicSubnet2
+  PrivateRoutingTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - !Ref EnvironmentTag
+              - '-rtbl-priv'
+  NATGatewayIPAddress:
+    Type: 'AWS::EC2::EIP'
+    DependsOn: AttachInternetGateway
+    Properties:
+      Domain: vpc
+  NATGateway:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt 
+        - NATGatewayIPAddress
+        - AllocationId
+      SubnetId: !Ref PublicSubnet0
+  PrivateRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+      RouteTableId: !Ref PrivateRoutingTable
+  PrivateRouteAssociationApp0:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateRoutingTable
+      SubnetId: !Ref PrivateSubnetApp0
+  PrivateRouteAssociationApp1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateRoutingTable
+      SubnetId: !Ref PrivateSubnetApp1
+  PrivateRouteAssociationApp2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateRoutingTable
+      SubnetId: !Ref PrivateSubnetApp2
+
+  opsSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Security group
+      VpcId: !Ref VPC
+      GroupName: 'opssecgroup'
+      SecurityGroupIngress:
+        - FromPort: 443
+          IpProtocol: tcp
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+
+# ecr repository
+  AgentToolsRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref ECRRepoName
+      ImageScanningConfiguration:
+        ScanOnPush: false
+      ImageTagMutability: MUTABLE
+      EmptyOnDelete: True
+
+# resource to push docker image to ECR
+  EC2InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref BedrockAgentToolsFunctionRole
+
+  DockerPushInstance:
+    Type: 'AWS::EC2::Instance'
+    DependsOn:
+      - BedrockAgentToolsFunctionRole
+      - AgentToolsRepository
+    Metadata:  
+      AWS::CloudFormation::Init:
+            configSets:
+                ec2_bootstrap:
+                    - install_docker
+            install_docker:
+                packages:
+                    yum:
+                        docker: []
+                services:
+                    sysvinit:
+                        docker:
+                            enabled: "true"
+                            ensureRunning: "true"
+                commands:
+                    docker_for_ec2_user:
+                        command: usermod -G docker ec2-user
+    Properties:
+      InstanceType: t2.small
+      ImageId: !Ref LatestAmiId
+      #KeyName: !Ref EEKeyPair
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: 'false'
+          DeviceIndex: '0'
+          GroupSet:
+            - !Ref opsSecurityGroup
+          SubnetId: !Ref PrivateSubnetApp1
+      UserData: !Base64
+        'Fn::Sub':
+          |
+            #!/bin/bash -xe
+            # sudo yum update -y && sudo amazon-linux-extras install docker -y && sudo service docker start && sudo usermod -a -G docker ec2-user
+            su - ec2-user
+            sudo yum update -y aws-cfn-bootstrap
+            # Start cfn-init
+            /opt/aws/bin/cfn-init -s ${AWS::StackId} -r DockerPushInstance --configsets ec2_bootstrap --region ${AWS::Region}
+            
+            sudo docker pull felix85/sqltools:latest
+            sudo docker tag felix85/sqltools:latest ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepoName}
+            aws ecr get-login-password --region ${AWS::Region} | sudo docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+            sudo docker push ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepoName}
+            
+            # All done so signal success
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource DockerPushInstance --region ${AWS::Region}   
+      Tags:
+        - Key: Name
+          Value: ECR-Loader
+
+  # DelayHandle:
+  #   Type: AWS::CloudFormation::WaitConditionHandle
+
+  # DelayCondition:
+  #   Type: AWS::CloudFormation::WaitCondition
+  #   DependsOn: DockerPushInstance
+  #   Properties:
+  #     Handle:
+  #       Ref: DelayHandle
+  #     Timeout: 240
+
+  LambdaDelayFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: 
+      - DockerPushInstance
+      - AgentToolsRepository
+    Properties:
+        Description: ""
+        FunctionName: !Join ['_', ['setup_delay_lambda', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]]]
+        Handler: "index.lambda_handler"
+        Role: !GetAtt BedrockAgentToolsFunctionRole.Arn
+        Runtime: python3.9
+        Timeout: '900'
+        MemorySize: '128'
+        EphemeralStorage: 
+            Size: 512
+        Code: 
+            ZipFile : |
+              import json
+              import boto3
+              import os
+              import cfnresponse
+              import time
+              import cfnresponse
+
+              def lambda_handler(event, context):
+                  delay_seconds = 120 #event['ResourceProperties']['DelaySeconds']
+                  time.sleep(delay_seconds)
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+
+  DelayedResource:
+    Type: Custom::DelayedResource
+    Version: '1.0'
+    Properties:
+      ServiceToken: !GetAtt LambdaDelayFunction.Arn
+      DelaySeconds: 120
+
+# lambda function for Bedrock Agent
+  BedrockAgentToolsLambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: 
+      - LambdaDelayFunction
+      - DelayedResource
+      - AgentToolsRepository
+      - DockerPushInstance
+    Properties:
+      Code:
+        ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepoName}:latest'
+      PackageType: Image
+      Role: !GetAtt BedrockAgentToolsFunctionRole.Arn
+      VpcConfig:
+          SecurityGroupIds: 
+            - !Ref opsSecurityGroup
+          SubnetIds:
+            - !Ref PrivateSubnetApp1
+      Environment:
+        Variables:
+          DATAZONE_DOMAIN_ID: !Ref DataZoneDomainId
+          DATAZONE_Env_Name:  !Ref DatazoneEnvName
+          ATHENA_QUERY_LOCATION: !Sub "s3://{DataBucket}/athena_results/"
+          KNOWLEDGEBASE_NAME: !Ref KnowledgeBaseName
+
+      Timeout: 900
+      EphemeralStorage: 
+        Size: 1028
+      MemorySize: '1028'
+
+
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BedrockAgentToolsLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: "bedrock.amazonaws.com"  
+
+
+  BedrockKBRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['_', ['AmazonBedrockExecutionRoleForKnowledgeBase_', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]]]
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - bedrock.amazonaws.com
+                - opensearchservice.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+        - 'arn:aws:iam::aws:policy/SecretsManagerReadWrite'
+        - 'arn:aws:iam::aws:policy/AmazonBedrockFullAccess'
+      Policies:
+        - PolicyName: CloudWatchAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+        - PolicyName: opensearch
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - 'aoss:*'
+              - 'aoss:APIAccessAll'
+              Resource:
+              - !Sub '${TestCollection.Arn}*'
+        - PolicyName: s3access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - 's3:Get*'
+              - 's3:List*'
+              - 's3:AbortMultipartUpload'
+              - 's3:DeleteObject'
+              - 's3:GetBucketVersioning'
+              - 's3:GetObject'
+              - 's3:GetObjectTagging'
+              - 's3:GetObjectVersion'
+              - 's3:ListBucket'
+              - 's3:ListBucketMultipartUploads'
+              - 's3:ListBucketVersions'
+              - 's3:ListMultipartUploadParts'
+              - 's3:PutBucketVersioning'
+              - 's3:PutObject'
+              - 's3:PutObjectTagging'
+              Resource:
+              - !Sub '${DataBucket.Arn}/*'
+              - !Sub '${DataBucket.Arn}'
+  
+
+  KBPassAccessPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyDocument: !Sub |
+          {
+              "Version": "2012-10-17",
+              "Statement": [
+                  {
+                      "Effect": "Allow",
+                      "Action": "iam:PassRole",
+                      "Resource": "arn:aws:iam::${AWS::AccountId}:role/${BedrockKBRole}"
+                  }
+              ]
+          }      
+      Roles: 
+        - !Ref   BedrockKBRole
+      PolicyName: !Join ['_', ['kb_iam_pass_policy', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]]]
+
+
+  BedrockAgentToolsFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['_', ['AmazonBedrockExecutionRoleForAgents', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]]]
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - bedrock.amazonaws.com
+                - athena.amazonaws.com
+                - opensearchservice.amazonaws.com
+                - es.amazonaws.com
+                - osis.amazonaws.com
+                - osis-pipelines.amazonaws.com
+                - ec2.amazonaws.com
+                - glue.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+        - 'arn:aws:iam::aws:policy/AWSLambda_FullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonBedrockFullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonEC2FullAccess'
+        - 'arn:aws:iam::aws:policy/SecretsManagerReadWrite'
+        - 'arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole'
+        - 'arn:aws:iam::aws:policy/AWSLakeFormationDataAdmin'
+
+      Policies:
+        - PolicyName: ECRGetAuthorizationToken
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:*
+                Resource: "*"
+        - PolicyName: GlueDZAthenaBedrockAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:*
+                  - iam:PutRolePolicy
+                  - datazone:*
+                  - glue:GetTables
+                  - glue:GetTable
+                  - glue:CreateDatabase
+                  - glue:DeleteDatabase
+                  - glue:DeleteCrawler
+                  - glue:CreateCrawler
+                  - glue:StartCrawler
+                  - athena:GetWorkGroup
+                  - athena:StartQueryExecution
+                  - athena:CancelQueryExecution
+                  - athena:StopQueryExecution
+                  - athena:GetQueryExecution
+                  - athena:GetQueryResults
+                  - athena:ListDataCatalogs
+                  - athena:ListWorkGroups
+                  - athena:UpdateWorkGroup
+                Resource: "*"
+        - PolicyName: OpenSearchIngestionAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - osis:Ingest
+                  - 'es:describeDomain'
+                  - 'es:ESHttpGet'
+                  - 'es:ESHttpPut'
+                Resource: "*"
+        - PolicyName: CloudWatchAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+        - PolicyName: opensearch
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - 'aoss:*'
+              Resource:
+              - !Sub '${TestCollection.Arn}*'
+        - PolicyName: s3access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - 's3:Get*'
+              - 's3:List*'
+              - 's3:AbortMultipartUpload'
+              - 's3:DeleteObject'
+              - 's3:GetBucketVersioning'
+              - 's3:GetObject'
+              - 's3:GetObjectTagging'
+              - 's3:GetObjectVersion'
+              - 's3:ListBucket'
+              - 's3:ListBucketMultipartUploads'
+              - 's3:ListBucketVersions'
+              - 's3:ListMultipartUploadParts'
+              - 's3:PutBucketVersioning'
+              - 's3:PutObject'
+              - 's3:PutObjectTagging'
+              Resource:
+              - !Sub '${DataBucket.Arn}/*'
+              - !Sub '${DataBucket.Arn}'
+
+  IAMPassAccessPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyDocument: !Sub |
+          {
+              "Version": "2012-10-17",
+              "Statement": [
+                  {
+                      "Effect": "Allow",
+                      "Action": "iam:PassRole",
+                      "Resource": "arn:aws:iam::${AWS::AccountId}:role/${BedrockAgentToolsFunctionRole}"
+                  }
+              ]
+          }
+            
+      Roles: 
+        - !Ref   BedrockAgentToolsFunctionRole
+      PolicyName: !Join ['_', ['agent_iam_pass_policy', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]]]
+
+  TestCollection:
+    Type: 'AWS::OpenSearchServerless::Collection'
+    DependsOn: 
+      - EncryptionPolicy
+    Properties:
+      Name: !Sub vector${AWS::StackName}
+      Type: VECTORSEARCH
+      Description: Opensearch Vector Collection for SQL Chat
+
+  EncryptionPolicy:
+    Type: 'AWS::OpenSearchServerless::SecurityPolicy'
+    Properties:
+      Name: !Sub ${AWS::StackName}encrypt
+      Type: encryption
+      Description: !Sub Encryption policy for vector-${AWS::StackName}
+      Policy: !Sub >-
+        {"Rules":[{"ResourceType":"collection","Resource":["collection/vector${AWS::StackName}"]}],"AWSOwnedKey":true}
+  
+  NetworkPolicy:
+    Type: 'AWS::OpenSearchServerless::SecurityPolicy'
+    Properties:
+      Name: !Sub ${AWS::StackName}security
+      Type: network
+      Description: !Sub Security policy for vector-${AWS::StackName}
+      Policy: !Sub >-
+        [{"Rules":[{"ResourceType":"collection","Resource":["collection/vector${AWS::StackName}"]}, {"ResourceType":"dashboard","Resource":["collection/vector${AWS::StackName}"]}],"AllowFromPublic":true}]
+  
+  TestAccessPolicy:
+    Type: 'AWS::OpenSearchServerless::AccessPolicy'
+    Properties:
+      Name: !Sub ${AWS::StackName}access
+      Type: data
+      Description: !Sub Access policy for vector-${AWS::StackName}
+      Policy: !Sub >-
+        [{"Description":"Access for test-user","Rules":[{"ResourceType":"index","Resource":["index/*/*"],"Permission":["aoss:*"]},
+        {"ResourceType":"collection","Resource":["collection/vector${AWS::StackName}"],"Permission":["aoss:*"]}],
+        "Principal":["${BedrockAgentToolsFunctionRole.Arn}", "${BedrockKBRole.Arn}"]}]
+
+
+  LambdaSetupFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: 
+      - BedrockAgentToolsFunctionRole
+      - DataBucket
+    Properties:
+        Description: ""
+        FunctionName: !Join ['_', ['setup_data_lambda', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]]]
+        Handler: "index.lambda_handler"
+        Code: 
+            ZipFile : |
+              import json
+              import boto3
+              import os
+              import cfnresponse
+              import string
+              import random
+              import urllib3
+              import shutil
+              import time
+              import botocore
+              from botocore.exceptions import ClientError
+
+              def wait_for_crawler_creation(crawler_name):
+                  glue_client = boto3.client('glue')
+
+                  waiter = glue_client.get_waiter('crawler_exists')
+                  waiter.wait(
+                      CrawlerNameList=[crawler_name],
+                      WaiterConfig={
+                          'Delay': 10,
+                          'MaxAttempts': 30
+                      }
+                  )
+
+              def run_glue_crawler(crawler_name):
+                  glue_client = boto3.client('glue')
+
+                  response = glue_client.start_crawler(
+                      Name=crawler_name
+                  )
+
+                  return response
+                  
+              def download_public_files(src,tgt):
+                  http = urllib3.PoolManager()
+                  with open("/tmp/"+tgt, 'wb') as out:
+                    r = http.request('GET', src, preload_content=False)
+                    shutil.copyfileobj(r, out)
+                  return "Files Downloaded Locally"
+
+              def empty_bucket(bucket_name,region_name,account_id):
+                  try:
+                    s3 = boto3.resource('s3')
+                    bucket = s3.Bucket(bucket_name)
+                    bucket.objects.all().delete()  
+                    
+                  except Exception as e:
+                    print(str(e))
+                  return "Bucket {} Emptied ".format(bucket_name) 
+
+              def drop_database(GlueDatabaseName, pattern):
+                  try:
+                    glue = boto3.client('glue')
+                    db_name = GlueDatabaseName+pattern
+                    glue.delete_database(Name=db_name) 
+                  except Exception as e:
+                    print(str(e))
+                  return "DB {} Deleted ".format(db_name)  
+
+              def delete_crawler(pattern):
+                  crawler_name = "sampledata-"+pattern
+                  try:
+                    glue = boto3.client('glue')
+                    glue.delete_crawler(Name=crawler_name)
+                  except Exception as e:
+                    print(str(e))
+                  return "Crawler {} deleted ".format(crawler_name) 
+
+              def configure_athena_result_location(bucket_name):
+                  print('start athena result location configuration')
+                  client = boto3.client('athena')
+                  try:
+                      response = client.get_work_group(WorkGroup='primary')
+                      ConfigurationUpdates={}
+                      ConfigurationUpdates['EnforceWorkGroupConfiguration']= True
+                      ResultConfigurationUpdates= {}
+                      athena_location = "s3://"+ bucket_name +"/athena_results/"
+                      ResultConfigurationUpdates['OutputLocation']=athena_location
+                      EngineVersion = response['WorkGroup']['Configuration']['EngineVersion']
+                      ConfigurationUpdates['ResultConfigurationUpdates']=ResultConfigurationUpdates
+                      ConfigurationUpdates['PublishCloudWatchMetricsEnabled']= response['WorkGroup']['Configuration']['PublishCloudWatchMetricsEnabled']
+                      ConfigurationUpdates['EngineVersion']=EngineVersion
+                      ConfigurationUpdates['RequesterPaysEnabled']= response['WorkGroup']['Configuration']['RequesterPaysEnabled']
+                      response2 = client.update_work_group(WorkGroup='primary',ConfigurationUpdates=ConfigurationUpdates,State='ENABLED')
+                  except Exception as e:
+                    print(str(e))
+                  
+                  print("athena output location updated")
+                  return "athena output location updated to s3://{}/athena_results/".format(bucket_name)                                 
+
+              def provision_s3_dirs(bucket_name,region_name,account_id,ret_dict):
+                  print("BUCKET NAME IS "+bucket_name)
+                  
+                  s3 = boto3.client('s3')
+                  try:
+                    s3.put_object(Bucket=bucket_name, Key=("code/"))
+                    s3.put_object(Bucket=bucket_name, Key=("athena_results/"))
+                    s3.put_object(Bucket=bucket_name, Key=("data/"))
+                    s3.put_object(Bucket=bucket_name, Key=("kb/"))
+
+                  except Exception as e:
+                    print(str(e))
+                  
+                  try:
+                      assets3 = boto3.resource('s3')
+                      if assets3.Bucket(bucket_name).creation_date is None:
+                        if region_name == 'us-east-1':
+                            print('trying to create bucket')
+                            assets3.create_bucket(Bucket=bucket_name)
+                        else:
+                            print('other region')
+                            assets3.create_bucket(Bucket=bucket_name,CreateBucketConfiguration={'LocationConstraint':region_name})
+                        print("Asset bucket {} doesn't exists, created".format(bucket_name))
+                        time.sleep(20)
+                        print("End Timed wait after Asset bucket created")
+                  except Exception as e:
+                      print(str(e))
+                  
+                  configure_athena_result_location(bucket_name)
+                  
+                  ret_dict["WorkshopBucket"]=bucket_name
+                  return ret_dict
+
+              def deploy_assets(bucket_name,region_name,account_id,role_arn, ret_dict):
+                  print("deploy assets to bucket: "+bucket_name)
+                  try :
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/categories.csv","categories.csv")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/customers.csv","customers.csv")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/employee_territories.csv","employee_territories.csv")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/employees.csv","employees.csv")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/orders_details.csv","orders_details.csv")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/orders.csv","orders.csv")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/products.csv","products.csv")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/regions.csv","regions.csv")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/shippers.csv","shippers.csv")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/suppliers.csv","suppliers.csv")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/territories.csv","territories.csv")
+
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/metadata/categories_csv_metadata.txt","categories_csv_metadata.txt")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/metadata/customers_csv_metadata.txt","customers_csv_metadata.txt")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/metadata/employee_territories_csv_metadata.txt","employee_territories_csv_metadata.txt")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/metadata/employees_csv_metadata.txt","employees_csv_metadata.txt")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/metadata/orders_details_csv_metadata.txt","orders_details_csv_metadata.txt")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/metadata/orders_csv_metadata.txt","orders_csv_metadata.txt")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/metadata/products_csv_metadata.txt","products_csv_metadata.txt")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/metadata/regions_csv_metadata.txt","regions_csv_metadata.txt")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/metadata/shippers_csv_metadata.txt","shippers_csv_metadata.txt")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/metadata/suppliers_csv_metadata.txt","suppliers_csv_metadata.txt")
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/data/metadata/territories_csv_metadata.txt","territories_csv_metadata.txt")
+
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/sqlagent/code/agent_aws_openapi.json","agent_aws_openapi.json")
+
+                      s3_client = boto3.client('s3')
+                      s3_client.upload_file('/tmp/categories_csv_metadata.txt', bucket_name, 'metadata/categories_csv_metadata.txt')
+                      s3_client.upload_file('/tmp/customers_csv_metadata.txt', bucket_name, 'metadata/customers_csv_metadata.txt')
+                      s3_client.upload_file('/tmp/employee_territories_csv_metadata.txt', bucket_name, 'metadata/employee_territories_csv_metadata.txt')
+                      s3_client.upload_file('/tmp/employees_csv_metadata.txt', bucket_name, 'metadata/employees_csv_metadata.txt')
+                      s3_client.upload_file('/tmp/orders_details_csv_metadata.txt', bucket_name, 'metadata/orders_details_csv_metadata.txt')
+                      s3_client.upload_file('/tmp/orders_csv_metadata.txt', bucket_name, 'metadata/orders_csv_metadata.txt')
+                      s3_client.upload_file('/tmp/products_csv_metadata.txt', bucket_name, 'metadata/products_csv_metadata.txt')
+                      s3_client.upload_file('/tmp/regions_csv_metadata.txt', bucket_name, 'metadata/regions_csv_metadata.txt')
+                      s3_client.upload_file('/tmp/shippers_csv_metadata.txt', bucket_name, 'metadata/shippers_csv_metadata.txt')
+                      s3_client.upload_file('/tmp/suppliers_csv_metadata.txt', bucket_name, 'metadata/suppliers_csv_metadata.txt')
+                      s3_client.upload_file('/tmp/territories_csv_metadata.txt', bucket_name, 'metadata/territories_csv_metadata.txt')
+
+                      s3_client.upload_file('/tmp/categories.csv', bucket_name, 'data/categories/categories.csv')
+                      s3_client.upload_file('/tmp/customers.csv', bucket_name, 'data/customers/customers.csv')
+                      s3_client.upload_file('/tmp/employee_territories.csv', bucket_name, 'data/employee_territories/employee_territories.csv')
+                      s3_client.upload_file('/tmp/employees.csv', bucket_name, 'data/employees/employees.csv')
+                      s3_client.upload_file('/tmp/orders_details.csv', bucket_name, 'data/orders_details/orders_details.csv')
+                      s3_client.upload_file('/tmp/orders.csv', bucket_name, 'data/orders/orders.csv')
+                      s3_client.upload_file('/tmp/products.csv', bucket_name, 'data/products/products.csv')
+                      s3_client.upload_file('/tmp/regions.csv', bucket_name, 'data/regions/regions.csv')
+                      s3_client.upload_file('/tmp/shippers.csv', bucket_name, 'data/shippers/shippers.csv')
+                      s3_client.upload_file('/tmp/suppliers.csv', bucket_name, 'data/suppliers/suppliers.csv')
+                      s3_client.upload_file('/tmp/territories.csv', bucket_name, 'data/territories/territories.csv')
+
+                      s3_client.upload_file('/tmp/agent_aws_openapi.json', bucket_name, 'code/agent_aws_openapi.json')
+
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/tutorial/opensearch-lib.zip","opensearch-lib.zip")
+                      s3_client.upload_file('/tmp/opensearch-lib.zip', bucket_name, 'code/opensearch-lib.zip')
+
+                  except Exception as e:
+                    print("Failed provisioning assets "+str(e))
+                  
+                  return ret_dict
+
+              def create_glue_database(bucket_name,GlueDatabaseName, pattern,ret_dict):
+                  print("create Glue database: "+GlueDatabaseName)
+                  try :
+                    glue = boto3.client('glue')
+                    db_name = f"{GlueDatabaseName}{pattern}"
+                    db_location = f"s3://{bucket_name}/data/"
+                    glue.create_database(DatabaseInput={'Name': db_name,'LocationUri': db_location})
+                  except Exception as e:
+                    print("Failed provisioning glue database "+str(e))
+                  ret_dict["DatabaseName"]=db_name
+                  return ret_dict
+
+              def create_lf_permissions(bucket_name, GlueDatabaseName, pattern, role_arn, account_id, ret_dict):
+                  print("create LF permissions for database: "+GlueDatabaseName)
+                  try :
+                      glue = boto3.client('glue')
+                      stsc = boto3.client('sts')
+                      lfc = boto3.client('lakeformation')
+
+                      db_name = f"{GlueDatabaseName}{pattern}"
+                      db_location = f"s3://{bucket_name}/data/"
+
+                      # Register DataLake Location - Administration
+                      
+                      s3_bucket_arn = f'arn:aws:s3:::{bucket_name}/data/'
+                      try:
+                        lfc.register_resource(ResourceArn = s3_bucket_arn, UseServiceLinkedRole = False, RoleArn=role_arn)
+                      except lfc.exceptions.AlreadyExistsException:
+                          print('The s3 bucket ' + s3_bucket_arn + ' is already registered with LakeFormation')
+
+                      # # Permissions on S3 bucket
+                      # IAMRoleARN = f'arn:aws:iam::{account_id}:role/aws-service-role/lakeformation.amazonaws.com/AWSServiceRoleForLakeFormationDataAccess'
+                      # data_lake_principal = {'DataLakePrincipalIdentifier': IAMRoleARN}
+                      # resource = {'DataLocation': {'ResourceArn': s3_bucket_arn}}
+                      # permissions = ['DATA_LOCATION_ACCESS']
+                      # lfc.grant_permissions(
+                      #     Principal = data_lake_principal,
+                      #     Resource = resource,
+                      #     Permissions = permissions
+                      # )
+
+                      # # CREATE_TABLE on databases
+                      # data_lake_principal = {'DataLakePrincipalIdentifier': IAMRoleARN}
+                      # resource = {'Database': {'Name': db_name}}
+                      # permissions = ['CREATE_TABLE']
+                      # lfc.grant_permissions(
+                      #     Principal = data_lake_principal,
+                      #     Resource = resource,
+                      #     Permissions = permissions
+                      # )
+                      # # DROP database for admin role
+                      # ADMIN_ARN = f'arn:aws:iam::{account_id}:role/admin'
+                      # data_lake_principal = {'DataLakePrincipalIdentifier': ADMIN_ARN}
+                      # resource = {'Database': {'Name': db_name}}
+                      # permissions = ['DROP_DATABASE']
+                      # lfc.grant_permissions(
+                      #     Principal = data_lake_principal,
+                      #     Resource = resource,
+                      #     Permissions = permissions
+                      # )
+                      try:
+                        # same for our role                     
+                        data_lake_principal = {'DataLakePrincipalIdentifier': role_arn}
+                        resource = {'Database': {'Name': db_name}}
+                        permissions = ['CREATE_TABLE']
+                        lfc.grant_permissions(
+                            Principal = data_lake_principal,
+                            Resource = resource,
+                            Permissions = permissions)
+                      except Exception as e:
+                        print("Failed to grant table create LF access for database "+str(e))  
+                  except Exception as e:
+                      print("Failed provisioning LF access for database "+str(e))
+
+                  ret_dict["DatabaseName"]=db_name
+                  return ret_dict
+
+              def deploy_and_run_glue_crawler(role_arn, pattern, GlueDatabaseName, bucket_name, ret_dict):
+                  print("start Glue crawler creation")
+                  crawler_name = f"{GlueDatabaseName}{pattern}"
+                  db_name = f"{GlueDatabaseName}{pattern}"
+                  print("GlueDatabaseName: " + str(db_name))
+                  ret_dict["CrawlerName"]=crawler_name
+                  job_role = role_arn
+                  
+                  try:
+                      glue_client = boto3.client('glue')
+                      s3_source = "s3://"+ bucket_name +"/data/"
+                      response = glue_client.create_crawler(
+                          Name=crawler_name,
+                          Role=job_role,
+                          DatabaseName=db_name,
+                          Targets={
+                              "S3Targets": [
+                                  {
+                                      "Path": s3_source
+                                  }
+                              ]
+                          },
+                          SchemaChangePolicy={
+                              'UpdateBehavior': 'UPDATE_IN_DATABASE',
+                              'DeleteBehavior': 'DEPRECATE_IN_DATABASE'
+                          },
+                          Description='Crawler for S3',
+                          Configuration='{"Version":1.0,"CrawlerOutput":{"Partitions":{"AddOrUpdateBehavior":"InheritFromTable"},"Tables":{"AddOrUpdateBehavior":"MergeNewColumns"}}}'
+                      )
+                  except Exception as e:
+                      print("Failed provisioning glue crawler "+str(e))
+                  
+                  try:
+                    print("waiting: " + str(60))
+                    time.sleep(60)
+                    #wait_for_crawler_creation(crawler_name)
+                    #print('Crawler', crawler_name, 'is created.')
+                    
+                    response = run_glue_crawler(crawler_name)
+                    time.sleep(90)
+                    print('Crawler', crawler_name, 'is running:', response['ResponseMetadata']['HTTPStatusCode'])
+
+                  except Exception as e:
+                      print("Failed running glue crawler "+str(e))
+
+                  return ret_dict
+
+
+              def create_project(datazone_domain_id, project_name):
+                  try:
+                      dzc = boto3.client('datazone')
+                      r = dzc.create_project(
+                          domainIdentifier = datazone_domain_id,
+                          name = project_name
+                      )
+                      return r['id']
+                  except Exception as e:
+                      print(e)
+
+              # not working atm: unclear how to get environmentBlueprintId 
+              def create_environment_profile(account_id,region, datazone_domain_id, projectIdentifier, environmentBlueprintIdentifier, envName):
+                  try:
+                      dzc = boto3.client('datazone')
+                      response = dzc.create_environment_profile(
+                          awsAccountId=account_id,
+                          awsAccountRegion=region,
+                          description='demo',
+                          domainIdentifier=datazone_domain_id,
+                          environmentBlueprintIdentifier=environmentBlueprintIdentifier,
+                          name=envName,
+                          projectIdentifier=projectIdentifier,
+                          userParameters=[
+                              {
+                                  'name': 'awsAccountId',
+                                  'value': account_id
+                              },
+                              {
+                                  'name': 'awsAccountRegion',
+                                  'value': region
+                              },
+                          ]
+                          )
+                      return response
+                  except Exception as e:
+                      print(e)
+
+              def get_environment_profile_id(datazone_domain_id, environmentprofilename):
+                  try:
+                      environment_profile_dict = {}
+                      dzc = boto3.client('datazone')
+                      r = dzc.list_environment_profiles(domainIdentifier = datazone_domain_id)
+                      for envioronment_profile in r['items']:
+                          environment_profile_dict[envioronment_profile['name']] = envioronment_profile['id']
+                      
+                      return environment_profile_dict[environmentprofilename]
+
+                  except Exception as e:
+                      print(e)
+
+              def create_environment_data_lake(env_name, datazone_domain_id, project_identifier, datalake_profile_identifier):
+                  try:
+                      dzc = boto3.client('datazone')
+                      r = dzc.create_environment(
+                          domainIdentifier = datazone_domain_id,
+                          environmentProfileIdentifier = datalake_profile_identifier,
+                          name = env_name,
+                          projectIdentifier = project_identifier
+                      )
+                      return r['id']
+                  except Exception as e:
+                      print(e)
+
+              def start_data_source_run(datazone_domain_id, datasource_identifier):
+                  try:
+                      dzc = boto3.client('datazone')
+                      r = dzc.start_data_source_run(
+                          dataSourceIdentifier=datasource_identifier,
+                          domainIdentifier=datazone_domain_id
+                      )
+                      return r['id']
+                  except Exception as e:
+                      print(e)
+
+              def accept_predictions(datazone_domain_id, asset_identifier):
+                  try:
+                      dzc = boto3.client('datazone')
+                      r = dzc.accept_predictions(
+                          acceptRule={
+                              'rule': 'ALL',
+                          },
+                          domainIdentifier=datazone_domain_id,
+                          identifier=asset_identifier,
+                          revision='latest'
+                      )
+                      return r
+                  except Exception as e:
+                      print(e)
+
+              def get_environment_id(datazone_domain_id,project_identifier):
+                  dzc = boto3.client('datazone')
+                  r = dzc.list_environments(domainIdentifier = datazone_domain_id, projectIdentifier = project_identifier)
+                  return r['items'][0]['id']
+
+              def create_data_source_glue(data_source_name, datazone_domain_id, project_identifier, glue_database_name):
+                  try:
+                      dzc = boto3.client('datazone')
+                      r = dzc.create_data_source(
+                          name = data_source_name,
+                          domainIdentifier = datazone_domain_id,
+                          environmentIdentifier = get_environment_id(datazone_domain_id,project_identifier),
+                          projectIdentifier = project_identifier,
+                          recommendation = {
+                              'enableBusinessNameGeneration': True
+                          },
+                          type = 'glue',
+                          configuration = {
+                              'glueRunConfiguration' : {
+                              'relationalFilterConfigurations': [
+                                  {
+                                      'databaseName': glue_database_name,
+                                      'filterExpressions': [
+                                      {
+                                          'expression': '*',
+                                          'type': 'INCLUDE'
+                                      }
+                                      ]
+                                  }
+                              ]
+                              }
+                          }
+                      )
+                      
+                      return r['id']
+                      
+                  except Exception as e:
+                      print(e)
+
+              def publish_asset(domainIdentifier,entityIdentifier):
+                  try:
+                      dzc = boto3.client('datazone')
+                      response = dzc.create_listing_change_set(
+                          action='PUBLISH',
+                          domainIdentifier=domainIdentifier,
+                          entityIdentifier=entityIdentifier,
+                          entityRevision='latest',
+                          entityType='ASSET'
+                      )
+                      return response
+                  except Exception as e:
+                      print(e)
+
+              def get_summary(entityName,s3bucketname):
+                  # read text file from S3 bucket
+                  s3 = boto3.client('s3')
+                  key = f'metadata/{entityName}'
+                  response = s3.get_object(Bucket=s3bucketname, Key=key)
+                  summary = response['Body'].read().decode('utf-8')
+                  return summary
+
+              def add_asset_summary(domainIdentifier,owningProjectIdentifier, entityIdentifier,entityName,summary, forms):
+                  try:
+                      dzc = boto3.client('datazone')
+
+                      input = []
+
+                      # check if there is an existing readme form
+                      readme_exist = False
+                      for form in forms:
+                          print(f'form: {form}')
+                          formtype_response = dzc.get_form_type(
+                              domainIdentifier=domainIdentifier,
+                              formTypeIdentifier= form['typeName'],
+                              revision='latest'
+                          )
+                          if form['typeName'] == 'amazon.datazone.AssetCommonDetailsFormType':
+                              print(f'Form AssetCommonDetailsFormType  - readme_exist set True')
+                              readme_exist = True
+                              content = "{\"customProperties\":{\"key\":\"readMe\",\"value\":\"" +  str(summary.replace("\n"," ").replace('"','\"')) + "\"}}"
+                          else:
+                              content = form['content']
+                          print(f'content: {content}')
+                          forminput = {
+                                    "content": content,
+                                    "formName": form['formName'],
+                                    "typeIdentifier":form['typeName'],
+                                    "typeRevision": formtype_response['revision'] #form['typeRevision']
+                          }
+                          input.append(forminput)
+                      if readme_exist == False:
+                          print(f'Form AssetCommonDetailsFormType  - readme_exist False - get form type')
+                          formtype_response = dzc.get_form_type(
+                              domainIdentifier=domainIdentifier,
+                              formTypeIdentifier= 'amazon.datazone.AssetCommonDetailsFormType',
+                              revision='latest'
+                          )
+                          content = "{\"customProperties\":{\"key\":\"readMe\",\"value\":\"" +  str(summary.replace("\n"," ").replace('"','\"')) + "\"}}"
+                          forminput = {
+                                    "content": content,
+                                    "formName": 'AssetCommonDetailsForm',
+                                    "typeIdentifier":'amazon.datazone.AssetCommonDetailsFormType',
+                                    "typeRevision": formtype_response['revision']
+                          }
+                          input.append(forminput)
+                      print(f'create_asset_revision with domainIdentifier {domainIdentifier} - entityIdentifier  {entityIdentifier} - entityName {entityName} - typeRevision latest - formsInput {input}')
+                      response = dzc.create_asset_revision(
+                          domainIdentifier=domainIdentifier, 
+                          identifier=entityIdentifier,
+                          name=entityName,
+                          typeRevision="latest",
+                          formsInput=input)
+                      print(f'create asset revision response {response}')
+                      return response
+                  
+                  except botocore.exceptions.ParamValidationError as error:
+                      raise ValueError('The parameters you provided are incorrect: {}'.format(error))
+                  except botocore.exceptions.ClientError as err:
+                      if err.response['Error']['Code'] == 'InternalError': # Generic error
+                          # We grab the message, request ID, and HTTP code to give to customer support
+                          print('Error Message: {}'.format(err.response['Error']['Message']))
+                          print('Request ID: {}'.format(err.response['ResponseMetadata']['RequestId']))
+                          print('Http code: {}'.format(err.response['ResponseMetadata']['HTTPStatusCode']))
+                      else:
+                          print(err)
+                  except Exception as e:
+                      print(e)
+              def write_datazone_assetdetails_to_S3(domainIdentifier, bucket_name):
+                  print(f"domainIdentifier: {domainIdentifier}")
+                  searchQuery =''
+                  dzc = boto3.client('datazone')
+                  response = dzc.search_listings(
+                      domainIdentifier=domainIdentifier,
+                      maxResults=49,
+                      searchText=searchQuery
+                  )
+
+                  assets = []
+                  for asset in response['items']:
+                      asset_dict = {}
+                      asset_dict['id']= asset['assetListing']['entityId']
+                      asset_dict['name'] = asset['assetListing']['name']
+                      asset_dict['owningProjectId'] = asset['assetListing']['owningProjectId']
+
+                      list_response = dzc.get_listing(
+                          domainIdentifier=domainIdentifier,
+                          identifier=asset['assetListing']['listingId'],
+                          listingRevision=asset['assetListing']['listingRevision']
+                      )
+
+                      asset_dict['glossaryTerms'] = list_response['item']['assetListing']['glossaryTerms']
+                      # parse json to dict
+                      forms_dict = json.loads(list_response['item']['assetListing']['forms'])
+                      asset_dict['glue_table_arn'] = f"{forms_dict['GlueTableForm']['tableArn']}"
+                      asset_dict['glue_table_name'] = f"{forms_dict['GlueTableForm']['tableName']}"
+                      asset_dict['glue_table_columns'] = f"{forms_dict['GlueTableForm']['columns']}"
+                      try:
+                          asset_dict['glue_table_business_columns'] = f"{forms_dict['ColumnBusinessMetadataForm']['columnsBusinessMetadata']}"
+                      except:
+                          asset_dict['glue_table_business_columns'] = ''
+                          print('no glue_table_business_columns')
+                      
+                      # get asset details
+                      response = dzc.get_asset(
+                          domainIdentifier=domainIdentifier,
+                          identifier=asset['assetListing']['entityId'],
+                          revision='latest'
+                      )
+                      for form in response['formsOutput']:
+                          if form['formName'] == 'AssetCommonDetailsForm':
+                              asset_dict['asset_readme'] = f"{form['content']}"
+
+                      assets.append(asset_dict)
+
+                  # write asset details to S3 as text file. Once stored here, they can be indexed by Bedrock KB job
+                  for asset in assets:
+                      print(asset['glue_table_name'])
+                      asset['glue_table_name']
+                      asset['glue_table_columns']
+                      asset['glue_table_business_columns']
+                      asset['asset_readme']
+                      
+                      s3 = boto3.resource('s3')
+                      bucket = s3.Bucket(bucket_name)
+                      bucket.put_object(Key=f"kb/{asset['glue_table_name']}_metadata.txt", Body=json.dumps(asset))
+
+              def create_datazone_assets(datazone_env_name, GlueDatabaseName, pattern, role_arn, region, account_id, datazone_domain_id, s3_bucket_name, ret_dict):
+                  import os
+                  import time
+                  import boto3
+                  import botocore
+                  import json
+                  
+                  import boto3.exceptions
+                  
+
+                  stsc = boto3.client('sts')
+                  dzc = boto3.client('datazone')
+                  print(f'starting create_datazone_assets')
+                  #environmentBlueprintIdentifier= 'DefaultDataLake'
+                  envName = datazone_env_name # 'DefaultDataLake'
+                  glue_database_name = f"{GlueDatabaseName}{pattern}"
+                  data_source_name = glue_database_name
+                  project_name = glue_database_name
+
+                  # create project
+                  project_identifier = create_project(datazone_domain_id, project_name)
+                  print(f'project_identifier: {project_identifier}')
+
+                  # add admin role to project
+                  try: 
+                    response = dzc.create_project_membership(
+                        designation='PROJECT_OWNER',
+                        domainIdentifier=datazone_domain_id,
+                        member={
+                            'userIdentifier': 'arn:aws:iam::'+ account_id +':role/admin'
+                        },
+                        projectIdentifier=project_identifier
+                    )
+                  except:
+                    print(f'failed  adding admin role to project')
+
+                  # # add role arn
+                  # try:
+                  #   response = dzc.create_project_membership(
+                  #       designation='PROJECT_OWNER',
+                  #       domainIdentifier=datazone_domain_id,
+                  #       member={
+                  #           'userIdentifier': role_arn
+                  #       },
+                  #       projectIdentifier=project_identifier
+                  #   )
+                  #   print(f"response from create_project_membership: {response}")
+                  # except:
+                  #   print(f'failed  adding role to project')
+                  #response = create_environment_profile(account_id,region, datazone_domain_id, project_identifier, environmentBlueprintIdentifier, envName)
+                  #print(f"response from create_environment_profile: {response}")
+
+                  # create project environment
+                  datalake_profile_identifier = get_environment_profile_id(datazone_domain_id, envName)
+                  print(f'datalake_profile_identifier: {datalake_profile_identifier}')
+                  environment_data_lake_id = create_environment_data_lake(envName, datazone_domain_id, project_identifier, datalake_profile_identifier)
+                  print(f'environment_data_lake_id: {environment_data_lake_id}')
+
+                  time.sleep(15)
+                  # create data source
+                  data_source_id = create_data_source_glue(data_source_name, datazone_domain_id, project_identifier, glue_database_name)
+                  print( f'data_source_id: {data_source_id}')
+                  time.sleep(60)
+                  # create data source run
+                  data_source_run_id = start_data_source_run(datazone_domain_id, data_source_id)
+                  print(f"data_source_run_id: {data_source_run_id}")
+                  # TO DO: THIS API is not available yet, and is planned to be released end of March
+                  ## start_metadatageneration_run(datazone_domain_id, project_identifier, asset_dict['id'])
+                  ## WORKAROUND: update readme with descriptions from S3 bucket
+                  time.sleep(120)
+                  response = dzc.list_data_source_run_activities(
+                      domainIdentifier=datazone_domain_id,
+                      identifier=data_source_run_id,
+                      maxResults=49,
+                      status='SUCCEEDED_CREATED'
+                  )
+
+                  assets = []
+                  for asset in response['items']:
+                      asset_dict = {}
+                      asset_dict['id']= asset['dataAssetId']
+                      assets.append(asset_dict)
+                      # TO DO: THIS API is not available yet, and is planned to be released end of March
+                      ## start_metadatageneration_run(datazone_domain_id, project_identifier, asset_dict['id'])
+                      
+                      # WORKAROUND: update readme with descriptions from S3 bucket
+                      # get asset details
+                      response = dzc.get_asset(
+                          domainIdentifier=datazone_domain_id,
+                          identifier=asset_dict['id'],
+                          revision='latest'
+                      )
+                      # get asset name
+                      entityName = response['name'] # Territories CSV
+                      print(f'entityName: {entityName}')
+                      entitySummaryName = ''
+                      # convert entityName string to lowercase and replace string with _
+                      # convert entityName string to lowercase and replace string with _
+                      if entityName.find("_csv_metadata.txt") == -1:
+                        entitySummaryName = f"{entityName.lower().replace(' ', '').replace('Comma Separated', '')}_csv_metadata.txt"
+                      
+                      print(f'entitySummaryName: {entitySummaryName}')
+
+                      # get summary from S3 bucket
+                      entitySummary = get_summary(entitySummaryName,s3_bucket_name)
+
+                      accept_predictions(datazone_domain_id, asset_dict['id'])
+                      time.sleep(15)
+
+                      # Update Amazon DataZone asset readme with retrieved summary
+                      add_asset_summary(datazone_domain_id, project_identifier, asset['dataAssetId'], entityName, entitySummary, response['formsOutput'])
+                      
+                      # publish asset
+                      publish_asset(datazone_domain_id,asset_dict['id'])
+
+                  write_datazone_assetdetails_to_S3(datazone_domain_id, s3_bucket_name)
+                  return ret_dict 
+
+              def delete_datazone_project(GlueDatabaseName, pattern, datazone_domain_id):
+                try:
+                    dzc = boto3.client('datazone')
+
+                    project_name = f"{GlueDatabaseName}{pattern}"
+                    r = dzc.delete_project(
+                        domainIdentifier = datazone_domain_id,
+                        name = project_name
+                    )
+                    return r['id']
+                except Exception as e:
+                    print(e)
+
+
+              def handle_delete(bucket_name,GlueDatabaseName, pattern,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr,datazone_domain_id):
+                  dict_return={}
+                  dict_return["Data"]="test_delete"
+                  empty_bucket(bucket_name,region_name,account_id)  
+                  delete_crawler(pattern)
+                  delete_datazone_project(GlueDatabaseName, pattern, datazone_domain_id)
+                  # TO DO: CHECK LF permissions
+                  drop_database(GlueDatabaseName, pattern)
+
+                  return dict_return  
+
+              def handle_create(bucket_name,GlueDatabaseName, pattern,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr,kb_role_arn,lambda_arn, kb_collection_url, datazone_domain_id, datazone_env_name):
+                  print('start handle create')
+                  dict_return={}
+                  dict_return=provision_s3_dirs(bucket_name,region_name, account_id,dict_return)
+                  dict_return=deploy_assets(bucket_name,region_name, account_id,role_arn, dict_return)
+                  dict_return=create_glue_database(bucket_name,GlueDatabaseName,pattern,dict_return)
+                  dict_return=create_lf_permissions(bucket_name,GlueDatabaseName, pattern,role_arn, account_id, dict_return)
+                  dict_return=deploy_and_run_glue_crawler(role_arn, pattern, GlueDatabaseName, bucket_name, dict_return)
+                  dict_return=create_datazone_assets(datazone_env_name, GlueDatabaseName, pattern, role_arn, region_name, account_id, datazone_domain_id, bucket_name, dict_return)
+                  return dict_return
+
+              def lambda_handler(event, context):
+                  response_ = cfnresponse.SUCCESS
+                  print(str(event))
+                  return_dict={}
+                  physical_resourceId = ''.join(random.choices(string.ascii_lowercase +string.digits, k=7))
+                  
+                  try:
+                      account_id = context.invoked_function_arn.split(":")[4]
+                      role_arn = str(os.environ['ROLE_ARN'])
+                      kb_role_arn = str(os.environ['KB_ROLE_ARN'])
+                      kb_collection_url = str(os.environ['KB_COLLECTION_URL'])
+                      lambda_arn = str(os.environ['LAMBDA_ARN'])
+                      region_name = str(os.environ['AWS_REGION'])
+                      bucket_arg = str(os.environ['BUCKET'])
+                      random_string_arg = str(os.environ['RANDOM_STRING'])
+                      agent_model = str(os.environ['AGENT_MODEL'])
+                      agent_name = str(os.environ['AGENT_NAME'])
+                      agent_instruction = str(os.environ['AGENT_INSTRUCTION'])
+                      agent_actiongroupname = str(os.environ['AGENT_ACTION_GROUP'])
+                      agent_kb_name = str(os.environ['AGENT_KB'])
+                      agent_kb_descr = str(os.environ['AGENT_KB_DESCR'])
+                      datazone_domain_id = str(os.environ['DATAZONE_DOMAIN_ID'])
+                      datazone_env_name = str(os.environ['DATAZONE_Env_Name'])
+                      GlueDatabaseName = agent_name
+
+                      request_type = str(event.get("RequestType",""))
+                      print('picked up event: '+ str(request_type))
+                      if request_type=='Create':
+                          return_dict = handle_create(bucket_arg, GlueDatabaseName, random_string_arg,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr,kb_role_arn,lambda_arn,kb_collection_url, datazone_domain_id, datazone_env_name)
+                      elif request_type =='Delete':
+                          return_dict = handle_delete(bucket_arg, GlueDatabaseName, random_string_arg,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr,datazone_domain_id)
+                      else:
+                          return_dict = {}
+                          return_dict["Data"] = "testupdate"
+                  except Exception as e:
+                    return_dict['Data'] = str(e)
+                    response_ = cfnresponse.FAILED
+                  cfnresponse.send(event,context,response_,return_dict,physical_resourceId)
+        
+        Role: !GetAtt BedrockAgentToolsFunctionRole.Arn
+        Environment:
+            Variables:
+                BUCKET: !Ref DataBucket
+                RANDOM_STRING: !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]
+                ROLE_ARN: !GetAtt BedrockAgentToolsFunctionRole.Arn
+                KB_ROLE_ARN: !GetAtt BedrockKBRole.Arn
+                KB_COLLECTION_URL: !GetAtt TestCollection.CollectionEndpoint
+                LAMBDA_ARN: !GetAtt BedrockAgentToolsLambdaFunction.Arn
+                AGENT_MODEL: !Ref AgentFoundationModel
+                AGENT_NAME: !Ref AgentName
+                AGENT_INSTRUCTION: !Ref AgentInstruction
+                AGENT_ACTION_GROUP: !Ref AgentActionGroupName
+                AGENT_ACTION_DESCR: !Ref AgentActionGroupDescription
+                AGENT_KB: !Ref KnowledgeBaseName
+                AGENT_KB_DESCR: !Ref KnowledgeBaseDescription
+                DATAZONE_DOMAIN_ID: !Ref DataZoneDomainId
+                DATAZONE_Env_Name: !Ref DatazoneEnvName
+        Runtime: python3.9
+        Timeout: '900'
+        MemorySize: '128'
+        EphemeralStorage: 
+            Size: 512
+        Layers:
+          - 'arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p39-boto3:23'
+  
+  EnableSetupLambda:
+    DependsOn:
+      - LambdaSetupFunction
+      - BedrockAgentToolsFunctionRole
+    Type: Custom::EnableLambda
+    Version: '1.0'
+    Properties:
+        ServiceToken: !GetAtt LambdaSetupFunction.Arn
+
+  AOSlayer:
+    Type: AWS::Lambda::LayerVersion
+    DependsOn: 
+      - EnableSetupLambda
+    Properties:
+      LayerName: OpenSearchLayer
+      Description: opensearch-py layer
+      Content:
+        S3Bucket: !Ref DataBucket
+        S3Key: 'code/opensearch-lib.zip'
+      CompatibleRuntimes:
+        - python3.9
+        - python3.10
+        - python3.11
+
+  BedrockSetupFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: 
+      - BedrockAgentToolsFunctionRole
+      - DataBucket
+      - AOSlayer
+    Properties:
+        Description: ""
+        FunctionName: !Join ['_', ['setup_bedrock_lambda', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]]]
+        VpcConfig:
+          SecurityGroupIds: 
+            - !Ref opsSecurityGroup
+          SubnetIds:
+            - !Ref PrivateSubnetApp1
+        Layers:
+          - !Ref AOSlayer
+          - 'arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p39-boto3:23'
+          - 'arn:aws:lambda:us-east-1:026459568683:layer:requests-aws4auth:1'
+        Handler: "index.lambda_handler"
+        Code: 
+            ZipFile : |
+              import json
+              import boto3
+              import os
+              import cfnresponse
+              import string
+              import random
+              import urllib3
+              import shutil
+              import time
+              from botocore.exceptions import ClientError
+              from opensearchpy import OpenSearch, RequestsHttpConnection
+              from requests_aws4auth import AWS4Auth
+
+              import subprocess
+
+              def run_shell(cmd):
+                  process = subprocess.Popen(
+                      cmd.split(' '),
+                      encoding='utf-8',
+                      stdin=subprocess.PIPE,
+                      stdout=subprocess.PIPE,
+                  )
+
+                  while(True):
+                      returncode = process.poll()
+                      if returncode is None:
+                          # You describe what is going on.
+                          # You can describe the process every time the time elapses as needed.
+                          # print("running process")
+                          time.sleep(0.01)
+                          data = process.stdout
+                          if data:
+                              # If there is any response, describe it here.
+                              # You need to use readline () or readlines () properly, depending on how the process responds.
+                              msg_line = data.readline()
+                              print(msg_line, end="")
+                          err = process.stderr
+                          if err:
+                              # If there is any error response, describe it here.
+                              msg_line = err.readline()
+                              print(msg_line, end="")
+                      else:
+                          break
+
+              def delete_bedrock_kb(role_arn,bucket_name,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr, dict_return):
+
+                  agent_resource_role_arn = role_arn
+                  knowledge_base_resource_role_arn = role_arn
+                  open_api_s3_url = 's3://' + bucket_name + '/code/agent_aws_openapi.json'
+
+                  knowledge_base_bucket = bucket_name
+                  foundation_model = agent_model
+                  instruction = agent_instruction
+                  description = agent_instruction
+                  knowledge_base_name = agent_kb_name
+                  knowledge_base_description = agent_kb_descr
+                  action_group_name = agent_actiongroupname
+                  data_source_name =  agent_kb_name
+
+                  bedrock_agent_client = boto3.client('bedrock-agent')
+                  paginator = bedrock_agent_client.get_paginator('list_agents')
+
+                  response_iterator = paginator.paginate()
+                  agent_id = ""
+                  agent_version = ""
+                  data_source_id = ""
+                  action_group_id = ""
+
+                  for page in response_iterator:
+                      for agent in page['agentSummaries']:
+                          if agent['agentName'] == agent_name:
+                              agent_id = agent['agentId']
+                              
+                  if agent_id != "":
+                      agent_versions = bedrock_agent_client.list_agent_versions(agentId = agent_id)
+                      agent_version = agent_versions['agentVersionSummaries'][0]['agentVersion']  
+
+                  if agent_id != "" and agent_version != "":
+                      agent_list_response = bedrock_agent_client.list_agent_action_groups(
+                          agentId=agent_id,
+                          agentVersion=agent_version,
+                      )
+                      
+                      for agent in agent_list_response['actionGroupSummaries']:
+                          if agent['actionGroupName'] == action_group_name:
+                              action_group_id = agent['actionGroupId']
+                          
+                  paginator = bedrock_agent_client.get_paginator('list_knowledge_bases')
+
+                  response_iterator = paginator.paginate()
+
+                  for page in response_iterator:
+                      for kb in page['knowledgeBaseSummaries']:
+                          if kb['name'] == knowledge_base_name:
+                              knowledge_base_id = kb['knowledgeBaseId']
+
+                  if knowledge_base_id != "":
+                      data_source_list_response = bedrock_agent_client.list_data_sources(
+                          knowledgeBaseId=knowledge_base_id
+                      )
+
+                      for data_source in data_source_list_response['dataSourceSummaries']:
+                          if data_source['name'] == data_source_name:
+                              data_source_id = data_source['dataSourceId']
+
+                  print(f"Agent Id: {agent_id}")
+                  print(f"Agent Version: {agent_version}")
+                  print(f"Action Group Id: {action_group_id}")
+                  print(f"Knowledgebase Id: {knowledge_base_id}")
+                  print(f"Datasource Id: {data_source_id}")
+
+                  bucket= open_api_s3_url[5:open_api_s3_url[5:].find('/')+5]
+                  key = open_api_s3_url[open_api_s3_url[5:].find('/')+6:]
+
+                  action_group_config = {
+                      "agentId": agent_id,
+                      "agentVersion": agent_version,
+                      "actionGroupId": action_group_id,
+                      "actionGroupName": action_group_name,
+                      "description": "",
+                      "actionGroupExecutor" : {
+                          "lambda": lambda_arn
+                      },
+                      "apiSchema": {
+                          "s3": {
+                              "s3BucketName": bucket,
+                              "s3ObjectKey": key
+                          }
+                      },
+                      "actionGroupState": "DISABLED"
+                  }
+
+                  try:
+                      action_group_result = bedrock_agent_client.update_agent_action_group(**action_group_config)
+                      action_group_result = bedrock_agent_client.delete_agent_action_group(
+                          agentId=agent_id,
+                          agentVersion=agent_version,
+                          actionGroupId=action_group_id
+                      )
+                      print("Action Group Deleted")
+                  except:
+                      print("Unable to Delete Action Group.")
+
+
+                  #response = bedrock_agent_client.disassociate_agent_knowledge_base(
+                  #    agentId=agent_id,
+                  #    agentVersion=agent_version,
+                  #    knowledgeBaseId=knowledge_base_id
+                  #)
+
+                  try:
+                      response = bedrock_agent_client.delete_data_source(
+                          knowledgeBaseId=knowledge_base_id,
+                          dataSourceId=data_source_id
+                      )
+                      print("Data Source Deleted")
+                  except:
+                      print("Unable to Delete Data Source.")
+
+                  try:
+                      response = bedrock_agent_client.delete_knowledge_base(
+                          knowledgeBaseId=knowledge_base_id
+                      )
+                      print("Knowledge Base Deleted")
+                  except:
+                      print("Unable to Delete Knowledge Base.")
+
+                  try:
+                      response = bedrock_agent_client.delete_agent(
+                          agentId=agent_id
+                      )
+                      print("Agent Deleted")
+                  except:
+                      print("Unable to Delete Agent.")
+                      
+                  run_shell(f"aws s3 rm --recursive s3://{knowledge_base_bucket.split(':')[5]}")
+                  run_shell(f"aws s3 rm --recursive s3://{knowledge_base_bucket}")
+
+
+                  return "bedrock agent and kb {} deleted ".format(agent_name)
+
+              def create_bedrock_kb(role_arn,bucket_name,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_actiongroupdescr,agent_kb_name,agent_kb_descr,kb_role_arn, lambda_arn, kb_collection_url, collection_arn, dict_return):
+
+                  agent_resource_role_arn = role_arn
+                  knowledge_base_resource_role_arn = kb_role_arn
+                  open_api_s3_url = 's3://' + bucket_name + '/code/agent_aws_openapi.json'
+                  
+                  agent_id = ""
+                  agent_version = ""
+                  knowledge_base_id = ""
+                  data_source_id = ""
+                  action_group_id = ""
+
+                  knowledge_base_bucket_arn = f'arn:aws:s3:::{bucket_name}'
+                  foundation_model = agent_model
+                  instruction = agent_instruction
+                  description = agent_instruction
+                  knowledge_base_name = agent_kb_name
+                  knowledge_base_description = agent_kb_descr
+                  action_group_name = agent_actiongroupname
+                  data_source_name =  agent_kb_name
+
+                  agent_config = {
+                      "agentName": agent_name,
+                      "instruction": instruction,
+                      "foundationModel": foundation_model,
+                      "description": description,
+                      "idleSessionTTLInSeconds": 60,
+                      "agentResourceRoleArn": agent_resource_role_arn,
+                      "promptConfigurations": [ 
+                          { 
+                              # "basePromptTemplate": "string",
+                              # "inferenceConfiguration": { 
+                              #     "maximumLength": int,
+                              #     "stopSequences": [ "string" ],
+                              #     "temperature": float,
+                              #     "topK": float,
+                              #     "topP": float
+                              # },
+                              "parserMode": "DEFAULT",
+                              "promptCreationMode": "DEFAULT",
+                              "promptState": "DISABLED",
+                              "promptType": "PRE_PROCESSING"
+                          }
+                      ]
+
+                  }
+
+                  response = {}
+                  current_session = boto3.session.Session()
+                  region = current_session.region_name
+                  print(f"The current region is {region}")
+                  bedrock_agent_client = boto3.client('bedrock-agent', region_name = region)
+
+                  if agent_id == "":
+                      response = bedrock_agent_client.create_agent(**agent_config)
+                      agent_id = response['agent']['agentId']
+                      
+                  agent_versions = bedrock_agent_client.list_agent_versions(agentId = agent_id)
+
+                  agent_version = agent_versions['agentVersionSummaries'][0]['agentVersion']  
+                  print(f"Agent Version: {agent_version}")
+                  time.sleep(5)
+                  bucket= bucket_name
+                  print('bucketname: ' + str(bucket))
+                  key = open_api_s3_url[open_api_s3_url[5:].find('/')+6:]
+                  print('bucket key: ' + str(key))
+                  print('action_group_name: ' + str(action_group_name))
+                  print('lambda_arn: ' + str(lambda_arn))
+                  
+                  action_group_config = {
+                      "agentId": agent_id,
+                      "agentVersion": agent_version,
+                      "actionGroupName": action_group_name,
+                      "description": agent_actiongroupdescr,
+                      "actionGroupExecutor" : {
+                          "lambda": lambda_arn
+                      },
+                      "apiSchema": {
+                          "s3": {
+                              "s3BucketName": bucket,
+                              "s3ObjectKey": key
+                          }
+                      },
+                      "actionGroupState": "ENABLED"
+                  }
+                  
+                  action_group_response = bedrock_agent_client.create_agent_action_group(**action_group_config)
+                  print(str(action_group_response))
+                  action_group_id = action_group_response['agentActionGroup']['actionGroupId']
+                  
+                  response = bedrock_agent_client.prepare_agent(
+                      agentId=agent_id
+                  )
+
+                  # set up Opensearch Serverless collection for KB
+                  opensearch_hostname = kb_collection_url.replace("https://", "")
+
+                  service = 'aoss'
+                  credentials = current_session.get_credentials()
+
+                  awsauth = AWS4Auth(credentials.access_key, credentials.secret_key, region, service,
+                  session_token=credentials.token)
+
+                  # Create an OpenSearch client
+                  client = OpenSearch(
+                      hosts = [{'host': opensearch_hostname, 'port': 443}],
+                      http_auth = awsauth,
+                      timeout = 300,
+                      use_ssl = True,
+                      verify_certs = True,
+                      connection_class = RequestsHttpConnection
+                  )
+                  index_name = "bedrock-kb-demo"
+                  vector_field = "kb_vector"
+                  text_field = "kb_text"
+                  bedrock_metadata_field = "bedrock"
+                  vector_size = 1536
+
+                  index_found = False
+                  try:
+                      client.indices.get(index=index_name)
+                      index_found = True
+                  except:
+                      print("Index does not exist, create the index")
+
+                  #create a new index
+                  if index_found == False:
+                      index_body = {
+                          "settings": {
+                              "index.knn": True
+                        },
+                        'mappings': {
+                          'properties': {
+                            f"{vector_field}": { "type": "knn_vector", "dimension": vector_size, "method": {"engine": "nmslib", "space_type": "cosinesimil", "name": "hnsw", "parameters": {}   } },
+                            f"{text_field}": { "type": "text" },
+                            f"{bedrock_metadata_field}": { "type": "text", "index": False }
+                          }
+                        }
+                      }
+
+                      client.indices.create(
+                        index=index_name, 
+                        body=index_body
+                      )
+                      # wait 30 seconds for index creation to complete
+                      time.sleep(30)
+
+                  client.indices.get(index=index_name)
+
+                  # create knowledge base
+                  knowledge_base_config = {
+                      "name": knowledge_base_name,
+                      "description": knowledge_base_description,
+                      "roleArn":knowledge_base_resource_role_arn,
+                      "knowledgeBaseConfiguration": {
+                          "type": 'VECTOR',
+                          "vectorKnowledgeBaseConfiguration": {
+                              "embeddingModelArn": "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v1"
+                          }
+                      },
+                      "storageConfiguration": {
+                          "type": 'OPENSEARCH_SERVERLESS',
+                          "opensearchServerlessConfiguration": {
+                              "collectionArn": collection_arn,
+                              "vectorIndexName": index_name,
+                              "fieldMapping": {
+                                  "vectorField": vector_field,
+                                  "textField": text_field,
+                                  "metadataField": bedrock_metadata_field
+                              }
+                          }
+                      }
+                  }
+
+                  if knowledge_base_id == "":
+                      response = bedrock_agent_client.create_knowledge_base(**knowledge_base_config)
+                      knowledge_base_id = response['knowledgeBase']['knowledgeBaseId']                      
+
+                  data_source_id = ""
+                  max_token_chunk = 8192
+                  overlap = 10
+
+                  response = bedrock_agent_client.list_data_sources(
+                      knowledgeBaseId=knowledge_base_id
+                  )
+                  for data_source in response['dataSourceSummaries']:
+                      if data_source['knowledgeBaseId'] == knowledge_base_id:
+                          data_source_id = data_source['dataSourceId']
+
+                  # configure data_source
+                  data_source_config = {
+                      "knowledgeBaseId": knowledge_base_id,
+                      "name": data_source_name,
+                      "description": data_source_name,
+                      "dataSourceConfiguration": {
+                          "type": 'S3',
+                          "s3Configuration": {
+                              "bucketArn": knowledge_base_bucket_arn,
+                              "inclusionPrefixes": [
+                                    "kb/",
+                                ]
+                          }
+                      },
+                      "vectorIngestionConfiguration": {
+                          "chunkingConfiguration": {
+                              "chunkingStrategy": "FIXED_SIZE",
+                              "fixedSizeChunkingConfiguration": {
+                                  "maxTokens": max_token_chunk,
+                                  "overlapPercentage": overlap
+                              }
+                          }
+                      }
+                  }
+
+                  ds_response = bedrock_agent_client.create_data_source(**data_source_config)
+                  data_source_id = ds_response['dataSource']['dataSourceId']
+                  
+                  response = bedrock_agent_client.list_data_sources( knowledgeBaseId=knowledge_base_id)
+                  for data_source in response['dataSourceSummaries']:
+                      if data_source['knowledgeBaseId'] == knowledge_base_id:
+                          data_source_id = data_source['dataSourceId']
+
+                  print(f"data_source_id: {data_source_id}")
+                  
+                  ingestion_response = bedrock_agent_client.start_ingestion_job(knowledgeBaseId=knowledge_base_id,dataSourceId=data_source_id)
+                  print(f"ingestion response: {ingestion_response}")
+                  
+                  ingestion_job = ingestion_response['ingestionJob']['ingestionJobId']
+                  print(f"ingestionJobId: {ingestion_job}")
+                  status = 'IN_PROGRESS'
+                  response = {}
+                  
+                  while status == 'IN_PROGRESS':
+                      response = bedrock_agent_client.get_ingestion_job(
+                          knowledgeBaseId=knowledge_base_id,
+                          dataSourceId=data_source_id,
+                          ingestionJobId=ingestion_job
+                      )
+                      
+                      status = response['ingestionJob']['status']
+                      time.sleep(5)
+                  
+                  print(response['ingestionJob']['statistics'])
+                  
+                  response = bedrock_agent_client.associate_agent_knowledge_base(
+                      agentId=agent_id,
+                      agentVersion=agent_version,
+                      knowledgeBaseId=knowledge_base_id,
+                      description='database tables and schemas',
+                      knowledgeBaseState='ENABLED'
+                  )
+                  print(f"associate_agent_knowledge_base response: {response}")
+                  print("Deploy Complete")
+
+
+                  dict_return["Bedrock"]="deployment of Bedrock Agent and KB complete"
+                  return dict_return
+
+              def handle_delete(bucket_name,GlueDatabaseName, pattern,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr):
+                  dict_return={}
+                  dict_return["Data"]="test_delete"
+                  delete_bedrock_kb(role_arn, bucket_name,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr, dict_return)
+
+                  return dict_return  
+
+              def handle_create(bucket_name,GlueDatabaseName, pattern,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_actiongroupdescr, agent_kb_name,agent_kb_descr,kb_role_arn,lambda_arn, kb_collection_url,collection_arn):
+                  print('start handle create')
+                  dict_return={}
+
+                  dict_return=create_bedrock_kb(role_arn, bucket_name,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_actiongroupdescr,agent_kb_name,agent_kb_descr,kb_role_arn, lambda_arn, kb_collection_url,collection_arn, dict_return)
+
+                  return dict_return
+
+              def lambda_handler(event, context):
+                  response_ = cfnresponse.SUCCESS
+                  print(str(event))
+                  return_dict={}
+                  physical_resourceId = ''.join(random.choices(string.ascii_lowercase +string.digits, k=7))
+                  
+                  
+                  try:
+                      account_id = context.invoked_function_arn.split(":")[4]
+                      role_arn = str(os.environ['ROLE_ARN'])
+                      kb_role_arn = str(os.environ['KB_ROLE_ARN'])
+                      kb_collection_url = str(os.environ['KB_COLLECTION_URL'])
+                      lambda_arn = str(os.environ['LAMBDA_ARN'])
+                      region_name = str(os.environ['AWS_REGION'])
+                      bucket_arg = str(os.environ['BUCKET'])
+                      random_string_arg = str(os.environ['RANDOM_STRING'])
+                      agent_model = str(os.environ['AGENT_MODEL'])
+                      agent_name = str(os.environ['AGENT_NAME'])
+                      agent_instruction = str(os.environ['AGENT_INSTRUCTION'])
+                      agent_actiongroupname = str(os.environ['AGENT_ACTION_GROUP'])
+                      agent_actiongroupdescr = str(os.environ['AGENT_ACTION_DESCR'])
+                      collection_arn = str(os.environ['KB_COLLECTION_ARN'])
+                      agent_kb_name = str(os.environ['AGENT_KB'])
+                      agent_kb_descr = str(os.environ['AGENT_KB_DESCR'])
+                      ec2_instance_id = str(os.environ['EC2_TEMP_INSTANCE'])
+                      ecr_repo = str(os.environ['ECR_REPO'])
+                      GlueDatabaseName = agent_name
+
+                      request_type = str(event.get("RequestType",""))
+                      print('picked up event: '+ str(request_type))
+                      if request_type=='Create':
+                          return_dict = handle_create(bucket_arg, GlueDatabaseName, random_string_arg,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_actiongroupdescr,agent_kb_name,agent_kb_descr,kb_role_arn,lambda_arn,kb_collection_url,collection_arn)
+                          # delete temp EC2 instance
+                          if ec2_instance_id != "":
+                            ec2client = boto3.client('ec2', region_name=region_name)
+                            print(f"stopping ec2 instance id: {ec2_instance_id}")
+                            response = ec2client.stop_instances(InstanceIds=[ec2_instance_id])
+                            print(f"response from stopping EC2 instance: {response}")
+                            time.sleep(20)
+                            print(f"terminating ec2 instance id: {ec2_instance_id}")
+                            response = ec2client.terminate_instances(InstanceIds=[ec2_instance_id])
+                            print(f"response from terminating EC2 instance: {response}")
+
+                      elif request_type =='Delete':
+                          return_dict = handle_delete(bucket_arg, GlueDatabaseName, random_string_arg,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr)
+                          # delete temp EC2 instance
+                          if ec2_instance_id != "":
+                            ec2client = boto3.client('ec2', region_name=region_name)
+                            print(f"stopping ec2 instance id: {ec2_instance_id}")
+                            response = ec2client.stop_instances(InstanceIds=[ec2_instance_id])
+                            print(f"response from stopping EC2 instance: {response}")
+                            time.sleep(20)
+                            print(f"terminating ec2 instance id: {ec2_instance_id}")
+                            response = ec2client.terminate_instances(InstanceIds=[ec2_instance_id])
+                            print(f"response from terminating EC2 instance: {response}")
+                          ecrclient = boto3.client('ecr')
+                          response = ecrclient.delete_repository(
+                              registryId=account_id,
+                              repositoryName=ecr_repo,
+                              force=True
+                          )
+                      else:
+                          return_dict = {}
+                          return_dict["Data"] = "testupdate"
+                  except Exception as e:
+                    return_dict['Data'] = str(e)
+                    response_ = cfnresponse.FAILED
+                  cfnresponse.send(event,context,response_,return_dict,physical_resourceId)
+        
+        Role: !GetAtt BedrockAgentToolsFunctionRole.Arn
+        Environment:
+            Variables:
+                BUCKET: !Ref DataBucket
+                RANDOM_STRING: !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]
+                ROLE_ARN: !GetAtt BedrockAgentToolsFunctionRole.Arn
+                KB_ROLE_ARN: !GetAtt BedrockKBRole.Arn
+                KB_COLLECTION_ARN: !GetAtt TestCollection.Arn
+                KB_COLLECTION_URL: !GetAtt TestCollection.CollectionEndpoint
+                LAMBDA_ARN: !GetAtt BedrockAgentToolsLambdaFunction.Arn
+                AGENT_MODEL: !Ref AgentFoundationModel
+                AGENT_NAME: !Ref AgentName
+                AGENT_INSTRUCTION: !Ref AgentInstruction
+                AGENT_ACTION_GROUP: !Ref AgentActionGroupName
+                AGENT_ACTION_DESCR: !Ref AgentActionGroupDescription
+                AGENT_KB: !Ref KnowledgeBaseName
+                AGENT_KB_DESCR: !Ref KnowledgeBaseDescription
+                EC2_TEMP_INSTANCE: !Ref DockerPushInstance
+                ECR_REPO: !Ref ECRRepoName
+        Runtime: python3.9
+        Timeout: '900'
+        MemorySize: '128'
+        EphemeralStorage: 
+            Size: 512
+
+  EnableBedrockLambda:
+    DependsOn:
+      - BedrockSetupFunction
+      - BedrockAgentToolsFunctionRole
+    Type: Custom::EnableLambda
+    Version: '1.0'
+    Properties:
+        ServiceToken: !GetAtt BedrockSetupFunction.Arn
+
+
+Outputs:
+  StackName:
+    Description: This is the stack name.
+    Value: !Ref 'AWS::StackName'
+    Export:
+      Name: !Sub '${AWS::StackName}-StackName'
+  VPCCIDRBlock:
+    Description: This is the VPC CIDR Block.
+    Value: !Join 
+      - ''
+      - - !Ref CIDRPrefix
+        - .0.0/21
+    Export:
+      Name: !Sub '${AWS::StackName}-VPCCIDRBlock'
+  VPCCIDRPrefix:
+    Description: This is the VPC CIDR Prefix For Offsetting in your chained stacks.
+    Value: !Ref CIDRPrefix
+    Export:
+      Name: !Sub '${AWS::StackName}-VPCCIDRPrefix'
+  EnvTag:
+    Description: This is the environment tag to use for other stacks to inherit.
+    Value: !Ref EnvironmentTag
+    Export:
+      Name: !Sub '${AWS::StackName}-EnvTag'
+  PublicSubnet0:
+    Description: Public subnet 0 for Load Balancer
+    Value: !Ref PublicSubnet0
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicSubnet0'
+  PublicSubnet1:
+    Description: Public subnet 1 for Load Balancer
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicSubnet1'
+  PublicSubnet2:
+    Description: Public subnet 2 for Load Balancer
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicSubnet2'
+  PrivateSubnetApp0:
+    Description: Private subnet 0 for Application
+    Value: !Ref PrivateSubnetApp0
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnetApp0'
+  PrivateSubnetApp1:
+    Description: Private subnet 1 for Application
+    Value: !Ref PrivateSubnetApp1
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnetApp1'
+  PrivateSubnetApp2:
+    Description: Private subnet 2 for Application
+    Value: !Ref PrivateSubnetApp2
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnetApp2'
+  ApplicationCIDRRange:
+    Description: This is the Application CIDR Range.
+    Value: !Join 
+      - ''
+      - - !Ref CIDRPrefix
+        - .4.0/22
+    Export:
+      Name: !Sub '${AWS::StackName}-ApplicationCIDRRange'
+  PublicCIDRRange:
+    Description: This is the Application CIDR Range.
+    Value: !Join 
+      - ''
+      - - !Ref CIDRPrefix
+        - .0.0/22
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicCIDRRange'
+  PublicRoutingTable:
+    Description: Public Route Table
+    Value: !Ref PublicRoutingTable
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicRoutingTable'
+  PrivateRoutingTable:
+    Description: Private Route Table
+    Value: !Ref PrivateRoutingTable
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateRoutingTable'
+  NATPublicIP:
+    Description: >-
+      This is the NAT Public IP address for external whitelisting of external
+      repos and packages.
+    Value: !Ref NATGatewayIPAddress
+    Export:
+      Name: !Sub '${AWS::StackName}-NATPublicIP'
+  VPCID:
+    Description: This is the VPC you have created
+    Value: !Ref VPC
+    Export:
+      Name: !Sub '${AWS::StackName}-VPCID'

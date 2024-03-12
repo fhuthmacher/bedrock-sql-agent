@@ -1,74 +1,43 @@
 {
     "openapi": "3.0.0",
     "info": {
-        "title": "Agent AWS API",
+        "title": "Agent-Finance",
         "version": "1.0.0",
-        "description": "APIs helpeing customers with knowledge of AWS by querying the AWS Well-Architected Framework, writing code, and creating diagrams."
+        "description": "SQLAgent is an automated, AI-powered agent that identifies data stores and then creates and runs SQL to retrieve the information to answer a user question."
     },
     "paths": {
-        "/query_well_arch_framework": {
+        "/run_sql": {
             "get": {
-                "summary": "Query the the AWS Well-Architected Framework to answer a customer question.",
-                "description": "Query the the AWS Well-Architected Framework to answer a customer question. The API takes in the customer query then returns the answer and list of documents.",
-                "operationId": "queryWellArch",
+                "summary": "identifies relevant data stores and tables and then generates and runs SQL query to answer a user question",
+                "description": "identifies relevant data stores and tables and then generates and runs SQL query to answer a user question",
+                "operationId": "gensql",
                 "parameters": [
                     {
                         "name": "query",
                         "in": "path",
-                        "description": "Customer query",
+                        "description": "user query",
                         "required": true,
                         "schema": {
                             "type": "string"
                         }
                     }
+
                 ],                
                 "responses": {
                     "200": {
-                        "description": "Query the the AWS Well-Architected Framework to answer a customer question.",
+                        "description": "generated SQL query and SQL query result",
                         "content": {
                             "application/json": {
                                 "schema": {
                                     "type": "object",
                                     "properties": {
-                                        "answer": {
+                                        "generated_sql_query": {
                                             "type": "string",
-                                            "description": "The response to customer query and list of documents cited."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/gen_code": {
-            "get": {
-                "summary": "Generate code for the customer",
-                "description": "Write code for the customer. The API takes in the customer query and returns the code for the customer.",
-                "operationId": "genCode",
-                "parameters": [
-                    {
-                        "name": "query",
-                        "in": "path",
-                        "description": "Customer query",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Code customer requested",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "code": {
+                                            "description": "generated sql query"
+                                        },
+                                        "sql_query_results": {
                                             "type": "string",
-                                            "description": "The code customer requested"
+                                            "description": "sql query result"
                                         }
                                     }
                                 }
@@ -78,5 +47,6 @@
                 }
             }
         }
+        
     }
 }
