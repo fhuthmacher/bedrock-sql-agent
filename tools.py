@@ -134,46 +134,52 @@ def get_schema(database_name, table_names):
 
 def execute_athena_query(database, query):
     # Start query execution
-    response = athena_client.start_query_execution(
-        QueryString=query,
-        QueryExecutionContext={
-            'Database': database
-        },
-        ResultConfiguration={
-            'OutputLocation': outputLocation
-        }
-    )
-
-    # Get query execution ID
-    query_execution_id = response['QueryExecutionId']
-    print(f"Query Execution ID: {query_execution_id}")
-
-    # Wait for the query to complete
-    response_wait = athena_client.get_query_execution(QueryExecutionId=query_execution_id)
-
-    while response_wait['QueryExecution']['Status']['State'] in ['QUEUED', 'RUNNING']:
-        print("Query is still running...")
-        response_wait = athena_client.get_query_execution(QueryExecutionId=query_execution_id)
-
-    print(f'response_wait {response_wait}')
-
-    # Check if the query completed successfully
-    if response_wait['QueryExecution']['Status']['State'] == 'SUCCEEDED':
-        print("Query succeeded!")
-
-        # Get query results
-        query_results = athena_client.get_query_results(QueryExecutionId=query_execution_id)
-
-        # Extract and return the result data
-        code = 'SUCCEEDED'
-        return code, extract_result_data(query_results)
-
-    else:
-        print("Query failed!")
-        code = response_wait['QueryExecution']['Status']['State']
-        message = response_wait['QueryExecution']['Status']['StateChangeReason']
+    try:
+        response = athena_client.start_query_execution(
+            QueryString=query,
+            QueryExecutionContext={
+                'Database': database
+            },
+            ResultConfiguration={
+                'OutputLocation': outputLocation
+            }
+        )
     
-        return code, message
+        # Get query execution ID
+        query_execution_id = response['QueryExecutionId']
+        print(f"Query Execution ID: {query_execution_id}")
+    
+        # Wait for the query to complete
+        response_wait = athena_client.get_query_execution(QueryExecutionId=query_execution_id)
+    
+        while response_wait['QueryExecution']['Status']['State'] in ['QUEUED', 'RUNNING']:
+            print("Query is still running...")
+            response_wait = athena_client.get_query_execution(QueryExecutionId=query_execution_id)
+    
+        print(f'response_wait {response_wait}')
+    
+        # Check if the query completed successfully
+        if response_wait['QueryExecution']['Status']['State'] == 'SUCCEEDED':
+            print("Query succeeded!")
+    
+            # Get query results
+            query_results = athena_client.get_query_results(QueryExecutionId=query_execution_id)
+    
+            # Extract and return the result data
+            code = 'SUCCEEDED'
+            return code, extract_result_data(query_results)
+        
+            
+        else:
+            print("Query failed!")
+            code = response_wait['QueryExecution']['Status']['State']
+            message = response_wait['QueryExecution']['Status']['StateChangeReason']
+    
+    
+    except Exception as e:
+        code = 'error'
+        message = f'error {e}'
+    return code, message
 
 def extract_result_data(query_results):
     #Return a cleaned response to the agent
@@ -211,32 +217,44 @@ def generate_sql(query, sqlerrormessage = "", db = "", schema=""):
                 print(f'table_arn: {table_arn}')
                 table_information += "\n"+ dataset["glue_table_arn"] + " \n"
                 table_information += f'table name: {dataset["name"]} \n'
+                print(f'table_name: {dataset["name"]}')
                 table_information += f'table columns: \n'
+                business_columns = []
                 if dataset["glue_table_business_columns"] != '':
                     business_columns = dataset["glue_table_business_columns"]
+                    
                     business_columns = business_columns.split("[")[1].split("]")[0]
-                    business_columns = "[" + business_columns.replace("'", "\"") + "]"
-                    business_columns = json.loads(business_columns)
-                else:
-                    business_columns = []
-                #print(f'business columns: {business_columns}')
-                #print(f'business columns type: {type(business_columns)}')
+                    business_columns = "[" + business_columns.replace(": '", ": \"").replace("'s", "s").replace("'", "\"") + "]"
+                    jsonstring = f'{business_columns}'
+                    print(f'business_columns: {jsonstring}')
+                    try:
+                        business_columns = json.loads(jsonstring)
+                    except Exception as e:
+                        print(f'error in json load of business columns: {e}')
+               
+                print(f'business columns: {business_columns}')
+                print(f'business columns type: {type(business_columns)}')
                 technical_columns = dataset["glue_table_columns"]
                 technical_columns = technical_columns.split("[")[1].split("]")[0]
                 technical_columns = "[" + technical_columns.replace("'", "\"") + "]"
-                #print (f'technical_columns: {technical_columns}')
-                technical_columns = json.loads(technical_columns)
-                #print(f'dict technical columns: {technical_columns}')
-                #print(f'technical columns type: {type(technical_columns)}')
+                jsonstring = f'{technical_columns}'
+                print (f'technical_columns: {jsonstring}')
+                try:
+                    technical_columns = json.loads(jsonstring)
+                except Exception as e:
+                        print(f'error in json load of technical columns: {e}')
+                print(f'dict technical columns: {technical_columns}')
+                print(f'technical columns type: {type(technical_columns)}')
                 if len(business_columns) > 0:
                     for column, business_column in zip(technical_columns, business_columns):
-                        print(f'business_column: {business_column}')
-                        print(f'business_column type: {type(business_column)}')     
+                        print(f'business description: {business_column["description"]}')
+                        print(f'columnName: {column["columnName"]}')
+                        print(f'columnDataType: {column["dataType"]}')   
                         table_information += f'{column["columnName"]} {column["dataType"]} , --{business_column["description"]} \n'
                 else:
                     for column in technical_columns:
-                        #print(f'column: {column}')
-                        #print(f'column type: {type(column)}')
+                        print(f'column: {column}')
+                        print(f'column type: {type(column)}')
                         table_information += f'{column["columnName"]} {column["dataType"]}, \n'
 
             # parse table_arn to extract database name

@@ -1526,6 +1526,19 @@ Resources:
                   except:
                     print(f'failed  adding Admin role to project')
 
+                  # add admin role to project
+                  try: 
+                    response = dzc.create_project_membership(
+                        designation='PROJECT_OWNER',
+                        domainIdentifier=datazone_domain_id,
+                        member={
+                            'userIdentifier': 'arn:aws:iam::'+ account_id +':role/admin'
+                        },
+                        projectIdentifier=project_identifier
+                    )
+                  except:
+                    print(f'failed  adding Admin role to project')
+
                   # add WSOpsRole
                   try: 
                     response = dzc.create_project_membership(
