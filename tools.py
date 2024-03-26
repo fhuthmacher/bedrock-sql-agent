@@ -8,22 +8,25 @@ from io import StringIO
 import logging
 import os
 
-# initialize clients
-datazone = boto3.client('datazone')
-athena_client = boto3.client('athena')
-bedrock_runtime = boto3.client(
-    service_name="bedrock-runtime",
-    region_name="us-east-1",
-)
-bedrock_config = Config(connect_timeout=120, read_timeout=120, retries={'max_attempts': 0})
-bedrock_agent_runtime_client = boto3.client("bedrock-agent-runtime",
-                              config=bedrock_config)
-bedrock_agent_client = boto3.client('bedrock-agent')
 
 # get Athena query result location
 outputLocation = os.environ['ATHENA_QUERY_LOCATION']
 # get Bedrock knowledge base name to identify knowledge base id
 kbName = os.environ['KNOWLEDGEBASE_NAME']
+# get the runtime region
+region = os.environ['REGION']
+
+# initialize clients
+datazone = boto3.client('datazone')
+athena_client = boto3.client('athena')
+bedrock_runtime = boto3.client(
+    service_name="bedrock-runtime",
+    region_name=region,
+)
+bedrock_config = Config(connect_timeout=120, read_timeout=120, retries={'max_attempts': 0})
+bedrock_agent_runtime_client = boto3.client("bedrock-agent-runtime",
+                              config=bedrock_config)
+bedrock_agent_client = boto3.client('bedrock-agent')
 
 # get knowledge base id
 paginator = bedrock_agent_client.get_paginator('list_knowledge_bases')
@@ -33,7 +36,7 @@ for page in response_iterator:
         if kb['name'] == kbName:
             knowledge_base_id = kb['knowledgeBaseId']
 
-def retrieveKBreferences(query, model_id = "anthropic.claude-v2", region_id = "us-east-1"):
+def retrieveKBreferences(query, model_id = "anthropic.claude-v2", region_id = region):
     model_arn = f'arn:aws:bedrock:{region_id}::foundation-model/{model_id}'
 
     response = bedrock_agent_runtime_client.retrieve_and_generate(

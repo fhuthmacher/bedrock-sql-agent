@@ -1,19 +1,10 @@
-AWSTemplateFormatVersion: 2010-09-09
-Description: >-
-  Amazon Bedrock SQL Agents with Amazon DataZone Tutorial
+Description: GenAI Data Strategy and Text-to-SQL Workshop
+
 Parameters:
   EnvironmentTag:
     Description: Enter Environment Tag
     Type: String
     Default: 'dev'
-  DataZoneDomainId:
-    Description: Enter DataZone DomainId
-    Type: String
-    Default: 'dzd_b0w3zj39hz6wtj'
-  DatazoneEnvName:
-    Description: Enter DataZone Env Name
-    Type: String
-    Default: 'DefaultDataLake'
   CIDRPrefix:
     Description: 'Enter Class B CIDR Prefix (e.g. 192.168, 10.1, 172.16)'
     Type: String
@@ -43,7 +34,7 @@ Parameters:
   AgentInstruction:
     Description: Amazon Bedrock Agent Instruction
     Type: String
-    Default: 'SQLAgent is an automated, AI-powered agent that identifies data sources from the knowledge base and then runs SQL to retrieve the information to answer a user question. Attach the generated SQL in the final response.'
+    Default: 'SQLAgent is an agent that identifies data sources from the knowledge base and then runs SQL to retrieve the information to answer a user question and returns the generated SQL in response.'
   AgentActionGroupName:
     Description: Amazon Bedrock Agent ActionGroupName
     Type: String
@@ -59,8 +50,194 @@ Parameters:
   KnowledgeBaseDescription:
     Description: Amazon Bedrock KnowledgeBase Description
     Type: String
-    Default: 'database tables and schemas'    
+    Default: 'database tables and schemas'
+
 Resources:
+ 
+  #
+  # DataZone IAM Role
+  #
+  DataZoneProvisionIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'DataZone_Provision_IAM_Role'
+      Description: 'IAM role for DataZone'
+      # Trust relationships
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Imporvement required - trusted services need to be scoped down
+          - Effect: Allow
+            Principal:
+              Service:
+                - datazone.amazonaws.com
+                - redshift.amazonaws.com
+                - athena.amazonaws.com
+                - auth.datazone.amazonaws.com
+                - glue.amazonaws.com
+                - lakeformation.amazonaws.com
+                - secretsmanager.amazonaws.com
+                - s3.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+              - 'sts:TagSession'
+      # Premissions
+      Policies:
+        # Imporvement required - premissions need to be scoped down
+        - PolicyName: Admin
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - '*'
+                Resource: '*'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonDataZoneDomainExecutionRolePolicy'
+        - 'arn:aws:iam::aws:policy/service-role/AmazonDataZoneGlueManageAccessRolePolicy'
+
+  DataZoneManageAccessIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'DataZone_Manage_Access_IAM_Role'
+      Description: 'IAM role for DataZone'
+      # Trust relationships
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Imporvement required - trusted services need to be scoped down
+          - Effect: Allow
+            Principal:
+              Service:
+                - datazone.amazonaws.com
+                - redshift.amazonaws.com
+                - athena.amazonaws.com
+                - auth.datazone.amazonaws.com
+                - glue.amazonaws.com
+                - lakeformation.amazonaws.com
+                - secretsmanager.amazonaws.com
+                - s3.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+              - 'sts:TagSession'
+      # Premissions
+      Policies:
+        # Imporvement required - premissions need to be scoped down
+        - PolicyName: Admin
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - '*'
+                Resource: '*'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonDataZoneDomainExecutionRolePolicy'
+        - 'arn:aws:iam::aws:policy/service-role/AmazonDataZoneGlueManageAccessRolePolicy'
+
+
+  DataZoneExecutionIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'DataZone_Execution_IAM_Role'
+      Description: 'IAM role for DataZone'
+      # Trust relationships
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        # Imporvement required - trusted services need to be scoped down
+          - Effect: Allow
+            Principal:
+              Service:
+                - datazone.amazonaws.com
+                - redshift.amazonaws.com
+                - athena.amazonaws.com
+                - auth.datazone.amazonaws.com
+                - glue.amazonaws.com
+                - lakeformation.amazonaws.com
+                - secretsmanager.amazonaws.com
+                - s3.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+              - 'sts:TagSession'
+      # Premissions
+      Policies:
+        # Imporvement required - premissions need to be scoped down
+        - PolicyName: Admin
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - '*'
+                Resource: '*'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonDataZoneDomainExecutionRolePolicy'
+        - 'arn:aws:iam::aws:policy/service-role/AmazonDataZoneGlueManageAccessRolePolicy'
+
+  #
+  # DataZone Domain
+  #
+  DataZoneDomain:
+    Type: AWS::DataZone::Domain
+    DependsOn: DataBucket
+    Properties:
+      Name: 'DataZoneWorkshopDomain'
+      DomainExecutionRole: !GetAtt DataZoneExecutionIAMRole.Arn
+  # add Data Warehouse Blueprint
+  DataZoneDomainDWBluePrint:
+    Type: AWS::DataZone::EnvironmentBlueprintConfiguration
+    DependsOn: DataBucket
+    Properties:
+      DomainIdentifier: !GetAtt DataZoneDomain.Id
+      EnvironmentBlueprintIdentifier: DefaultDataWarehouse
+      EnabledRegions:
+        - !Ref 'AWS::Region'
+      ProvisioningRoleArn: !GetAtt DataZoneProvisionIAMRole.Arn
+      ManageAccessRoleArn: !GetAtt DataZoneManageAccessIAMRole.Arn
+  # add Data Lake Blueprint
+  DataZoneDomainDLBluePrint:
+    Type: AWS::DataZone::EnvironmentBlueprintConfiguration
+    DependsOn: DataBucket
+    Properties:
+      DomainIdentifier: !GetAtt DataZoneDomain.Id
+      EnvironmentBlueprintIdentifier: DefaultDataLake
+      RegionalParameters: [
+                {
+                    Region: !Ref 'AWS::Region',
+                    Parameters: {
+                        S3Location: !Join [ '', [ 's3://', !Ref DataBucket ] ]
+                    }
+                }
+            ]
+      EnabledRegions: [ !Ref 'AWS::Region' ]
+      ProvisioningRoleArn: !GetAtt DataZoneProvisionIAMRole.Arn
+      ManageAccessRoleArn: !GetAtt DataZoneManageAccessIAMRole.Arn
+
+  DataZoneProjectAdmin:
+    Type: AWS::DataZone::Project
+    Properties:
+      DomainIdentifier: !GetAtt DataZoneDomain.Id
+      Name: 'System'
+  # add DataLake environment profile for DataLake
+  AdminEnvironmentProfile:
+    Type: AWS::DataZone::EnvironmentProfile
+    Properties:
+      AwsAccountId: !Ref AWS::AccountId
+      AwsAccountRegion: !Ref AWS::Region
+      DomainIdentifier: !GetAtt DataZoneDomain.Id
+      EnvironmentBlueprintIdentifier: !GetAtt DataZoneDomainDLBluePrint.EnvironmentBlueprintId
+      Name: 'DefaultDataLake'
+      ProjectIdentifier: !GetAtt DataZoneProjectAdmin.Id
+
+  AdminEnvironment:
+    Type: AWS::DataZone::Environment
+    Properties: 
+      DomainIdentifier: !GetAtt DataZoneDomain.Id
+      EnvironmentProfileIdentifier: !GetAtt AdminEnvironmentProfile.Id
+      Name: 'DefaultDataLake'
+      ProjectIdentifier: !GetAtt DataZoneProjectAdmin.Id
+
   VPC:
     Type: 'AWS::EC2::VPC'
     Properties:
@@ -360,17 +537,6 @@ Resources:
         - Key: Name
           Value: ECR-Loader
 
-  # DelayHandle:
-  #   Type: AWS::CloudFormation::WaitConditionHandle
-
-  # DelayCondition:
-  #   Type: AWS::CloudFormation::WaitCondition
-  #   DependsOn: DockerPushInstance
-  #   Properties:
-  #     Handle:
-  #       Ref: DelayHandle
-  #     Timeout: 240
-
   LambdaDelayFunction:
     Type: AWS::Lambda::Function
     DependsOn: 
@@ -428,10 +594,9 @@ Resources:
             - !Ref PrivateSubnetApp1
       Environment:
         Variables:
-          DATAZONE_DOMAIN_ID: !Ref DataZoneDomainId
-          DATAZONE_Env_Name:  !Ref DatazoneEnvName
           ATHENA_QUERY_LOCATION: !Sub "s3://{DataBucket}/athena_results/"
           KNOWLEDGEBASE_NAME: !Ref KnowledgeBaseName
+          REGION: !Ref AWS::Region
 
       Timeout: 900
       EphemeralStorage: 
@@ -779,8 +944,10 @@ Resources:
                     print(str(e))
                   return "DB {} Deleted ".format(db_name)  
 
-              def delete_crawler(pattern):
-                  crawler_name = "sampledata-"+pattern
+              def delete_crawler(GlueDatabaseName, pattern):
+                  crawler_name = f"{GlueDatabaseName}{pattern}"
+                  db_name = f"{GlueDatabaseName}{pattern}"
+                  
                   try:
                     glue = boto3.client('glue')
                     glue.delete_crawler(Name=crawler_name)
@@ -826,7 +993,7 @@ Resources:
                   try:
                       assets3 = boto3.resource('s3')
                       if assets3.Bucket(bucket_name).creation_date is None:
-                        if region_name == 'us-east-1':
+                        if region_name == 'us-east-1' or region_name == 'us-west-2':
                             print('trying to create bucket')
                             assets3.create_bucket(Bucket=bucket_name)
                         else:
@@ -902,6 +1069,9 @@ Resources:
                       download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/tutorial/opensearch-lib.zip","opensearch-lib.zip")
                       s3_client.upload_file('/tmp/opensearch-lib.zip', bucket_name, 'code/opensearch-lib.zip')
 
+                      download_public_files("https://d3q8adh3y5sxpk.cloudfront.net/tutorial/requests-aws4auth-lib.zip","awsauth-lib.zip")
+                      s3_client.upload_file('/tmp/awsauth-lib.zip', bucket_name, 'code/awsauth-lib.zip')
+
                   except Exception as e:
                     print("Failed provisioning assets "+str(e))
                   
@@ -958,7 +1128,7 @@ Resources:
                       #     Permissions = permissions
                       # )
                       # # DROP database for admin role
-                      # ADMIN_ARN = f'arn:aws:iam::{account_id}:role/admin'
+                      # ADMIN_ARN = f'arn:aws:iam::{account_id}:role/Admin'
                       # data_lake_principal = {'DataLakePrincipalIdentifier': ADMIN_ARN}
                       # resource = {'Database': {'Name': db_name}}
                       # permissions = ['DROP_DATABASE']
@@ -1163,6 +1333,7 @@ Resources:
 
               def publish_asset(domainIdentifier,entityIdentifier):
                   try:
+                      print('trying create_listing_change_set')
                       dzc = boto3.client('datazone')
                       response = dzc.create_listing_change_set(
                           action='PUBLISH',
@@ -1171,6 +1342,7 @@ Resources:
                           entityRevision='latest',
                           entityType='ASSET'
                       )
+                      print(f'create_listing_change_set response: {response}')
                       return response
                   except Exception as e:
                       print(e)
@@ -1184,11 +1356,12 @@ Resources:
                   return summary
 
               def add_asset_summary(domainIdentifier,owningProjectIdentifier, entityIdentifier,entityName,summary, forms):
+                  print('add_asset_summary beg')
                   try:
                       dzc = boto3.client('datazone')
 
                       input = []
-
+                      response = ''
                       # check if there is an existing readme form
                       readme_exist = False
                       for form in forms:
@@ -1235,8 +1408,7 @@ Resources:
                           typeRevision="latest",
                           formsInput=input)
                       print(f'create asset revision response {response}')
-                      return response
-                  
+                                        
                   except botocore.exceptions.ParamValidationError as error:
                       raise ValueError('The parameters you provided are incorrect: {}'.format(error))
                   except botocore.exceptions.ClientError as err:
@@ -1249,80 +1421,90 @@ Resources:
                           print(err)
                   except Exception as e:
                       print(e)
+                  
+                  return response
+
+
               def write_datazone_assetdetails_to_S3(domainIdentifier, bucket_name):
                   print(f"domainIdentifier: {domainIdentifier}")
                   searchQuery =''
                   dzc = boto3.client('datazone')
                   response = dzc.search_listings(
-                      domainIdentifier=domainIdentifier,
-                      maxResults=49,
-                      searchText=searchQuery
+                  domainIdentifier=domainIdentifier,
+                  maxResults=49,
+                  searchText=searchQuery
                   )
-
-                  assets = []
+                  
+                  assets_arr = []
                   for asset in response['items']:
+                      print('iterate')
                       asset_dict = {}
                       asset_dict['id']= asset['assetListing']['entityId']
                       asset_dict['name'] = asset['assetListing']['name']
                       asset_dict['owningProjectId'] = asset['assetListing']['owningProjectId']
-
+                      
                       list_response = dzc.get_listing(
-                          domainIdentifier=domainIdentifier,
-                          identifier=asset['assetListing']['listingId'],
-                          listingRevision=asset['assetListing']['listingRevision']
+                        domainIdentifier=domainIdentifier,
+                        identifier=asset['assetListing']['listingId'],
+                        listingRevision='asset['assetListing']['listingRevision']'
                       )
-
+                      print(f'list_response: {list_response}')
                       asset_dict['glossaryTerms'] = list_response['item']['assetListing']['glossaryTerms']
                       # parse json to dict
                       forms_dict = json.loads(list_response['item']['assetListing']['forms'])
                       asset_dict['glue_table_arn'] = f"{forms_dict['GlueTableForm']['tableArn']}"
                       asset_dict['glue_table_name'] = f"{forms_dict['GlueTableForm']['tableName']}"
                       asset_dict['glue_table_columns'] = f"{forms_dict['GlueTableForm']['columns']}"
+                      asset_dict['glue_table_business_columns'] = ''
                       try:
                           asset_dict['glue_table_business_columns'] = f"{forms_dict['ColumnBusinessMetadataForm']['columnsBusinessMetadata']}"
                       except:
-                          asset_dict['glue_table_business_columns'] = ''
                           print('no glue_table_business_columns')
                       
                       # get asset details
-                      response = dzc.get_asset(
-                          domainIdentifier=domainIdentifier,
-                          identifier=asset['assetListing']['entityId'],
-                          revision='latest'
-                      )
-                      for form in response['formsOutput']:
-                          if form['formName'] == 'AssetCommonDetailsForm':
-                              asset_dict['asset_readme'] = f"{form['content']}"
-
-                      assets.append(asset_dict)
-
+                      asset_dict['asset_readme'] = ''
+                      try:
+                          print(f'trying to get asset details for: {asset["assetListing"]["entityId"]} with revision: {asset["assetListing"]["listingRevision"]}')
+                          response = dzc.get_asset(
+                              domainIdentifier=domainIdentifier,
+                              identifier=asset['assetListing']['entityId'],
+                              revision='latest' 
+                          )
+                          print(f'get_asset response: {response}')
+                          for form in response['formsOutput']:
+                              if form['formName'] == 'AssetCommonDetailsForm':
+                                  asset_dict['asset_readme'] = f"{form['content']}"
+                      except dzc.exceptions.AccessDeniedException as e:
+                          print(f'no AccessDeniedException, error: {e}')
+                          
+                      except Exception as e:
+                          print(f'no asset_readme, error: {e}')
+                          
+                  
+                  assets_arr.append(asset_dict)
+                  
                   # write asset details to S3 as text file. Once stored here, they can be indexed by Bedrock KB job
-                  for asset in assets:
-                      print(asset['glue_table_name'])
-                      asset['glue_table_name']
-                      asset['glue_table_columns']
-                      asset['glue_table_business_columns']
-                      asset['asset_readme']
+                  for asset in assets_arr:
                       
                       s3 = boto3.resource('s3')
                       bucket = s3.Bucket(bucket_name)
                       bucket.put_object(Key=f"kb/{asset['glue_table_name']}_metadata.txt", Body=json.dumps(asset))
 
-              def create_datazone_assets(datazone_env_name, GlueDatabaseName, pattern, role_arn, region, account_id, datazone_domain_id, s3_bucket_name, ret_dict):
+              def create_datazone_assets(datazone_env_id, GlueDatabaseName, pattern, role_arn, region, account_id, datazone_domain_id, s3_bucket_name,environment_data_lake_id, project_identifier, ret_dict):
                   import os
                   import time
                   import boto3
                   import botocore
                   import json
-                  
                   import boto3.exceptions
                   
 
                   stsc = boto3.client('sts')
                   dzc = boto3.client('datazone')
                   print(f'starting create_datazone_assets')
-                  #environmentBlueprintIdentifier= 'DefaultDataLake'
-                  envName = datazone_env_name # 'DefaultDataLake'
+
+                  datalake_profile_identifier = datazone_env_id 
+                  envName = 'DefaultDataLake'
                   glue_database_name = f"{GlueDatabaseName}{pattern}"
                   data_source_name = glue_database_name
                   project_name = glue_database_name
@@ -1337,121 +1519,166 @@ Resources:
                         designation='PROJECT_OWNER',
                         domainIdentifier=datazone_domain_id,
                         member={
-                            'userIdentifier': 'arn:aws:iam::'+ account_id +':role/admin'
+                            'userIdentifier': 'arn:aws:iam::'+ account_id +':role/Admin'
                         },
                         projectIdentifier=project_identifier
                     )
                   except:
-                    print(f'failed  adding admin role to project')
+                    print(f'failed  adding Admin role to project')
 
-                  # # add role arn
-                  # try:
-                  #   response = dzc.create_project_membership(
-                  #       designation='PROJECT_OWNER',
-                  #       domainIdentifier=datazone_domain_id,
-                  #       member={
-                  #           'userIdentifier': role_arn
-                  #       },
-                  #       projectIdentifier=project_identifier
-                  #   )
-                  #   print(f"response from create_project_membership: {response}")
-                  # except:
-                  #   print(f'failed  adding role to project')
-                  #response = create_environment_profile(account_id,region, datazone_domain_id, project_identifier, environmentBlueprintIdentifier, envName)
-                  #print(f"response from create_environment_profile: {response}")
+                  # add WSOpsRole
+                  try: 
+                    response = dzc.create_project_membership(
+                        designation='PROJECT_OWNER',
+                        domainIdentifier=datazone_domain_id,
+                        member={
+                            'userIdentifier': 'arn:aws:iam::'+ account_id +':role/WSOpsRole'
+                        },
+                        projectIdentifier=project_identifier
+                    )
+                  except:
+                    print(f'failed  adding WSOpsRole role to project')
+
+                  # add WSSystemRole
+                  try: 
+                    response = dzc.create_project_membership(
+                        designation='PROJECT_OWNER',
+                        domainIdentifier=datazone_domain_id,
+                        member={
+                            'userIdentifier': 'arn:aws:iam::'+ account_id +':role/WSSystemRole'
+                        },
+                        projectIdentifier=project_identifier
+                    )
+                  except:
+                    print(f'failed  adding WSSystemRole role to project')
+
+                  # arn:aws:iam::482851935940:role/DataZone_Execution_IAM_Role
+                  try: 
+                    response = dzc.create_project_membership(
+                        designation='PROJECT_OWNER',
+                        domainIdentifier=datazone_domain_id,
+                        member={
+                            'userIdentifier': 'arn:aws:iam::'+ account_id +':role/DataZone_Execution_IAM_Role'
+                        },
+                        projectIdentifier=project_identifier
+                    )
+                  except:
+                    print(f'failed  adding DataZone_Execution_IAM_Role role to project')
+
+                  # add Participants role
+                  try: 
+                    response = dzc.create_project_membership(
+                        designation='PROJECT_OWNER',
+                        domainIdentifier=datazone_domain_id,
+                        member={
+                            'userIdentifier': 'arn:aws:iam::'+ account_id +':role/WSParticipantRole'
+                        },
+                        projectIdentifier=project_identifier
+                    )
+                  except:
+                    print(f'failed  adding WSParticipantRole role to project')
 
                   # create project environment
-                  datalake_profile_identifier = get_environment_profile_id(datazone_domain_id, envName)
+                  # datalake_profile_identifier = get_environment_profile_id(datazone_domain_id, envName)
                   print(f'datalake_profile_identifier: {datalake_profile_identifier}')
                   environment_data_lake_id = create_environment_data_lake(envName, datazone_domain_id, project_identifier, datalake_profile_identifier)
+                  
                   print(f'environment_data_lake_id: {environment_data_lake_id}')
 
-                  time.sleep(15)
+                  time.sleep(90)
+                  print(f'wait 90 secs then create data source')
                   # create data source
                   data_source_id = create_data_source_glue(data_source_name, datazone_domain_id, project_identifier, glue_database_name)
                   print( f'data_source_id: {data_source_id}')
+                  print(f'wait 60 secs then create data source run')
                   time.sleep(60)
                   # create data source run
                   data_source_run_id = start_data_source_run(datazone_domain_id, data_source_id)
                   print(f"data_source_run_id: {data_source_run_id}")
-                  # TO DO: THIS API is not available yet, and is planned to be released end of March
-                  ## start_metadatageneration_run(datazone_domain_id, project_identifier, asset_dict['id'])
-                  ## WORKAROUND: update readme with descriptions from S3 bucket
-                  time.sleep(120)
-                  response = dzc.list_data_source_run_activities(
-                      domainIdentifier=datazone_domain_id,
-                      identifier=data_source_run_id,
-                      maxResults=49,
-                      status='SUCCEEDED_CREATED'
-                  )
+                  if data_source_run_id is None or data_source_run_id == '':
+                    print('do nothing and return to CF creation')
+                  else:
+                    # TO DO: THIS API is not available yet, and is planned to be released end of March
+                    ## start_metadatageneration_run(datazone_domain_id, project_identifier, asset_dict['id'])
+                    ## WORKAROUND: update readme with descriptions from S3 bucket
+                    time.sleep(120)
+                    response = dzc.list_data_source_run_activities(
+                        domainIdentifier=datazone_domain_id,
+                        identifier=data_source_run_id,
+                        maxResults=49,
+                        status='SUCCEEDED_CREATED'
+                    )
 
-                  assets = []
-                  for asset in response['items']:
-                      asset_dict = {}
-                      asset_dict['id']= asset['dataAssetId']
-                      assets.append(asset_dict)
-                      # TO DO: THIS API is not available yet, and is planned to be released end of March
-                      ## start_metadatageneration_run(datazone_domain_id, project_identifier, asset_dict['id'])
-                      
-                      # WORKAROUND: update readme with descriptions from S3 bucket
-                      # get asset details
-                      response = dzc.get_asset(
-                          domainIdentifier=datazone_domain_id,
-                          identifier=asset_dict['id'],
-                          revision='latest'
-                      )
-                      # get asset name
-                      entityName = response['name'] # Territories CSV
-                      print(f'entityName: {entityName}')
-                      entitySummaryName = ''
-                      # convert entityName string to lowercase and replace string with _
-                      # convert entityName string to lowercase and replace string with _
-                      if entityName.find("_csv_metadata.txt") == -1:
-                        entitySummaryName = f"{entityName.lower().replace(' ', '').replace('Comma Separated', '')}_csv_metadata.txt"
-                      
-                      print(f'entitySummaryName: {entitySummaryName}')
+                    assets = []
+                    for asset in response['items']:
+                        asset_dict = {}
+                        asset_dict['id']= asset['dataAssetId']
+                        assets.append(asset_dict)
+                        # TO DO: THIS API is not available yet, and is planned to be released end of March
+                        ## start_metadatageneration_run(datazone_domain_id, project_identifier, asset_dict['id'])
+                        
+                        # WORKAROUND: update readme with descriptions from S3 bucket
+                        # get asset details
+                        try:
+                          response = dzc.get_asset(
+                              domainIdentifier=datazone_domain_id,
+                              identifier=asset_dict['id'],
+                              revision='latest'
+                          )
+                          # get asset name
+                          entityName = response['name'] # Territories CSV
+                          print(f'entityName: {entityName}')
+                          entitySummaryName = ''
+                          # convert entityName string to lowercase and replace string with _
+                          # convert entityName string to lowercase and replace string with _
+                          if entityName.find("_csv_metadata.txt") == -1:
+                            entitySummaryName = f"{entityName.lower().replace(' ', '').replace('Comma Separated', '')}_csv_metadata.txt"
+                          
+                          print(f'entitySummaryName: {entitySummaryName}')
 
-                      # get summary from S3 bucket
-                      entitySummary = get_summary(entitySummaryName,s3_bucket_name)
+                          # get summary from S3 bucket
+                          entitySummary = get_summary(entitySummaryName,s3_bucket_name)
 
-                      accept_predictions(datazone_domain_id, asset_dict['id'])
-                      time.sleep(15)
+                          accept_predictions(datazone_domain_id, asset_dict['id'])
+                          time.sleep(15)
 
-                      # Update Amazon DataZone asset readme with retrieved summary
-                      add_asset_summary(datazone_domain_id, project_identifier, asset['dataAssetId'], entityName, entitySummary, response['formsOutput'])
-                      
-                      # publish asset
-                      publish_asset(datazone_domain_id,asset_dict['id'])
+                          # Update Amazon DataZone asset readme with retrieved summary
+                          add_asset_summary(datazone_domain_id, project_identifier, asset['dataAssetId'], entityName, entitySummary, response['formsOutput'])
+                          
+                          # publish asset
+                          publish_asset(datazone_domain_id,asset_dict['id'])
 
-                  write_datazone_assetdetails_to_S3(datazone_domain_id, s3_bucket_name)
+                        except:
+                          print(f'failed  to update readme and publish new version for asset: {asset}')
+
+                    write_datazone_assetdetails_to_S3(datazone_domain_id, s3_bucket_name)
                   return ret_dict 
 
               def delete_datazone_project(GlueDatabaseName, pattern, datazone_domain_id):
                 try:
                     dzc = boto3.client('datazone')
-
                     project_name = f"{GlueDatabaseName}{pattern}"
+                    print(f'delete datazone project for domain_id: {datazone_domain_id} and project name: {project_name}')
                     r = dzc.delete_project(
                         domainIdentifier = datazone_domain_id,
                         name = project_name
                     )
-                    return r['id']
+                    return r
                 except Exception as e:
                     print(e)
 
 
               def handle_delete(bucket_name,GlueDatabaseName, pattern,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr,datazone_domain_id):
                   dict_return={}
-                  dict_return["Data"]="test_delete"
+                  dict_return["Data"]="delete"
                   empty_bucket(bucket_name,region_name,account_id)  
-                  delete_crawler(pattern)
+                  delete_crawler(GlueDatabaseName, pattern)
                   delete_datazone_project(GlueDatabaseName, pattern, datazone_domain_id)
-                  # TO DO: CHECK LF permissions
                   drop_database(GlueDatabaseName, pattern)
 
                   return dict_return  
 
-              def handle_create(bucket_name,GlueDatabaseName, pattern,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr,kb_role_arn,lambda_arn, kb_collection_url, datazone_domain_id, datazone_env_name):
+              def handle_create(bucket_name,GlueDatabaseName, pattern,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr,kb_role_arn,lambda_arn, kb_collection_url, datazone_domain_id, datazone_env_id, environment_data_lake_id, project_identifier):
                   print('start handle create')
                   dict_return={}
                   dict_return=provision_s3_dirs(bucket_name,region_name, account_id,dict_return)
@@ -1459,7 +1686,7 @@ Resources:
                   dict_return=create_glue_database(bucket_name,GlueDatabaseName,pattern,dict_return)
                   dict_return=create_lf_permissions(bucket_name,GlueDatabaseName, pattern,role_arn, account_id, dict_return)
                   dict_return=deploy_and_run_glue_crawler(role_arn, pattern, GlueDatabaseName, bucket_name, dict_return)
-                  dict_return=create_datazone_assets(datazone_env_name, GlueDatabaseName, pattern, role_arn, region_name, account_id, datazone_domain_id, bucket_name, dict_return)
+                  dict_return=create_datazone_assets(datazone_env_id, GlueDatabaseName, pattern, role_arn, region_name, account_id, datazone_domain_id, bucket_name,environment_data_lake_id, project_identifier, dict_return)
                   return dict_return
 
               def lambda_handler(event, context):
@@ -1484,13 +1711,15 @@ Resources:
                       agent_kb_name = str(os.environ['AGENT_KB'])
                       agent_kb_descr = str(os.environ['AGENT_KB_DESCR'])
                       datazone_domain_id = str(os.environ['DATAZONE_DOMAIN_ID'])
-                      datazone_env_name = str(os.environ['DATAZONE_Env_Name'])
+                      datazone_env_id = str(os.environ['DATAZONE_Env_Profile_Id'])
+                      environment_data_lake_id = str(os.environ['DATAZONE_Env_Id'])
+                      project_identifier = str(os.environ['DATAZONE_Project_Id'])
                       GlueDatabaseName = agent_name
 
                       request_type = str(event.get("RequestType",""))
                       print('picked up event: '+ str(request_type))
                       if request_type=='Create':
-                          return_dict = handle_create(bucket_arg, GlueDatabaseName, random_string_arg,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr,kb_role_arn,lambda_arn,kb_collection_url, datazone_domain_id, datazone_env_name)
+                          return_dict = handle_create(bucket_arg, GlueDatabaseName, random_string_arg,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr,kb_role_arn,lambda_arn,kb_collection_url, datazone_domain_id, datazone_env_id, environment_data_lake_id, project_identifier)
                       elif request_type =='Delete':
                           return_dict = handle_delete(bucket_arg, GlueDatabaseName, random_string_arg,role_arn,region_name, account_id,agent_model,agent_name,agent_instruction,agent_actiongroupname,agent_kb_name,agent_kb_descr,datazone_domain_id)
                       else:
@@ -1517,15 +1746,17 @@ Resources:
                 AGENT_ACTION_DESCR: !Ref AgentActionGroupDescription
                 AGENT_KB: !Ref KnowledgeBaseName
                 AGENT_KB_DESCR: !Ref KnowledgeBaseDescription
-                DATAZONE_DOMAIN_ID: !Ref DataZoneDomainId
-                DATAZONE_Env_Name: !Ref DatazoneEnvName
+                DATAZONE_DOMAIN_ID: !GetAtt DataZoneDomain.Id
+                DATAZONE_Env_Profile_Id: !GetAtt AdminEnvironmentProfile.Id #!Ref DatazoneEnvName
+                DATAZONE_Env_Id: !GetAtt AdminEnvironment.Id #!Ref DatazoneEnvName
+                DATAZONE_Project_Id: !GetAtt DataZoneProjectAdmin.Id #!Ref DatazoneEnvName
         Runtime: python3.9
         Timeout: '900'
         MemorySize: '128'
         EphemeralStorage: 
             Size: 512
         Layers:
-          - 'arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p39-boto3:23'
+          - 'arn:aws:lambda:us-west-2:770693421928:layer:Klayers-p39-boto3:23'
   
   EnableSetupLambda:
     DependsOn:
@@ -1551,12 +1782,28 @@ Resources:
         - python3.10
         - python3.11
 
+  AUTHlayer:
+    Type: AWS::Lambda::LayerVersion
+    DependsOn: 
+      - EnableSetupLambda
+    Properties:
+      LayerName: AuthLayer
+      Description: awsauthlayer
+      Content:
+        S3Bucket: !Ref DataBucket
+        S3Key: 'code/awsauth-lib.zip'
+      CompatibleRuntimes:
+        - python3.9
+        - python3.10
+        - python3.11
+
   BedrockSetupFunction:
     Type: AWS::Lambda::Function
     DependsOn: 
       - BedrockAgentToolsFunctionRole
       - DataBucket
       - AOSlayer
+      - AUTHlayer
     Properties:
         Description: ""
         FunctionName: !Join ['_', ['setup_bedrock_lambda', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]]]
@@ -1567,8 +1814,9 @@ Resources:
             - !Ref PrivateSubnetApp1
         Layers:
           - !Ref AOSlayer
-          - 'arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p39-boto3:23'
-          - 'arn:aws:lambda:us-east-1:026459568683:layer:requests-aws4auth:1'
+          - !Ref AUTHlayer
+          - 'arn:aws:lambda:us-west-2:770693421928:layer:Klayers-p39-boto3:23'
+          
         Handler: "index.lambda_handler"
         Code: 
             ZipFile : |
@@ -1780,8 +2028,8 @@ Resources:
                       "foundationModel": foundation_model,
                       "description": description,
                       "idleSessionTTLInSeconds": 60,
-                      "agentResourceRoleArn": agent_resource_role_arn
-
+                      "agentResourceRoleArn": agent_resource_role_arn,
+                      
                   }
 
                   response = {}
@@ -1894,7 +2142,7 @@ Resources:
                       "knowledgeBaseConfiguration": {
                           "type": 'VECTOR',
                           "vectorKnowledgeBaseConfiguration": {
-                              "embeddingModelArn": "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v1"
+                              "embeddingModelArn": "arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-embed-text-v1"
                           }
                       },
                       "storageConfiguration": {
@@ -1960,27 +2208,27 @@ Resources:
                           data_source_id = data_source['dataSourceId']
 
                   print(f"data_source_id: {data_source_id}")
+                  # # BEG REQUIRES MODEL ACCESS
+                  # ingestion_response = bedrock_agent_client.start_ingestion_job(knowledgeBaseId=knowledge_base_id,dataSourceId=data_source_id)
+                  # print(f"ingestion response: {ingestion_response}")
                   
-                  ingestion_response = bedrock_agent_client.start_ingestion_job(knowledgeBaseId=knowledge_base_id,dataSourceId=data_source_id)
-                  print(f"ingestion response: {ingestion_response}")
+                  # ingestion_job = ingestion_response['ingestionJob']['ingestionJobId']
+                  # print(f"ingestionJobId: {ingestion_job}")
+                  # status = 'IN_PROGRESS'
+                  # response = {}
                   
-                  ingestion_job = ingestion_response['ingestionJob']['ingestionJobId']
-                  print(f"ingestionJobId: {ingestion_job}")
-                  status = 'IN_PROGRESS'
-                  response = {}
-                  
-                  while status == 'IN_PROGRESS':
-                      response = bedrock_agent_client.get_ingestion_job(
-                          knowledgeBaseId=knowledge_base_id,
-                          dataSourceId=data_source_id,
-                          ingestionJobId=ingestion_job
-                      )
+                  # while status == 'IN_PROGRESS':
+                  #     response = bedrock_agent_client.get_ingestion_job(
+                  #         knowledgeBaseId=knowledge_base_id,
+                  #         dataSourceId=data_source_id,
+                  #         ingestionJobId=ingestion_job
+                  #     )
                       
-                      status = response['ingestionJob']['status']
-                      time.sleep(5)
+                  #     status = response['ingestionJob']['status']
+                  #     time.sleep(5)
                   
-                  print(response['ingestionJob']['statistics'])
-                  
+                  # print(response['ingestionJob']['statistics'])
+                  # # BEG REQUIRES MODEL ACCESS
                   response = bedrock_agent_client.associate_agent_knowledge_base(
                       agentId=agent_id,
                       agentVersion=agent_version,
@@ -2113,96 +2361,149 @@ Resources:
     Properties:
         ServiceToken: !GetAtt BedrockSetupFunction.Arn
 
+  DZAssetKBSyncFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: 
+      - BedrockAgentToolsFunctionRole
+      - DataBucket
+    Properties:
+        Description: ""
+        FunctionName: !Join ['_', ['SyncDZassetsToKB', !Select [4, !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId]]]]]]
+        Handler: "index.lambda_handler"
+        Role: !GetAtt BedrockAgentToolsFunctionRole.Arn
+        Environment:
+            Variables:
+                BUCKET_NAME: !Ref DataBucket
+                DATAZONE_DOMAIN_ID: !GetAtt DataZoneDomain.Id
+                KNOWLEDGEBASE_NAME: !Ref KnowledgeBaseName
+                
+        Runtime: python3.9
+        Timeout: '900'
+        MemorySize: '128'
+        EphemeralStorage: 
+            Size: 512
+        Layers:
+          - 'arn:aws:lambda:us-west-2:770693421928:layer:Klayers-p39-boto3:23'
+        Code: 
+            ZipFile : |
+              import boto3
+              import json
+              import os
+              import time
 
-Outputs:
-  StackName:
-    Description: This is the stack name.
-    Value: !Ref 'AWS::StackName'
-    Export:
-      Name: !Sub '${AWS::StackName}-StackName'
-  VPCCIDRBlock:
-    Description: This is the VPC CIDR Block.
-    Value: !Join 
-      - ''
-      - - !Ref CIDRPrefix
-        - .0.0/21
-    Export:
-      Name: !Sub '${AWS::StackName}-VPCCIDRBlock'
-  VPCCIDRPrefix:
-    Description: This is the VPC CIDR Prefix For Offsetting in your chained stacks.
-    Value: !Ref CIDRPrefix
-    Export:
-      Name: !Sub '${AWS::StackName}-VPCCIDRPrefix'
-  EnvTag:
-    Description: This is the environment tag to use for other stacks to inherit.
-    Value: !Ref EnvironmentTag
-    Export:
-      Name: !Sub '${AWS::StackName}-EnvTag'
-  PublicSubnet0:
-    Description: Public subnet 0 for Load Balancer
-    Value: !Ref PublicSubnet0
-    Export:
-      Name: !Sub '${AWS::StackName}-PublicSubnet0'
-  PublicSubnet1:
-    Description: Public subnet 1 for Load Balancer
-    Value: !Ref PublicSubnet1
-    Export:
-      Name: !Sub '${AWS::StackName}-PublicSubnet1'
-  PublicSubnet2:
-    Description: Public subnet 2 for Load Balancer
-    Value: !Ref PublicSubnet2
-    Export:
-      Name: !Sub '${AWS::StackName}-PublicSubnet2'
-  PrivateSubnetApp0:
-    Description: Private subnet 0 for Application
-    Value: !Ref PrivateSubnetApp0
-    Export:
-      Name: !Sub '${AWS::StackName}-PrivateSubnetApp0'
-  PrivateSubnetApp1:
-    Description: Private subnet 1 for Application
-    Value: !Ref PrivateSubnetApp1
-    Export:
-      Name: !Sub '${AWS::StackName}-PrivateSubnetApp1'
-  PrivateSubnetApp2:
-    Description: Private subnet 2 for Application
-    Value: !Ref PrivateSubnetApp2
-    Export:
-      Name: !Sub '${AWS::StackName}-PrivateSubnetApp2'
-  ApplicationCIDRRange:
-    Description: This is the Application CIDR Range.
-    Value: !Join 
-      - ''
-      - - !Ref CIDRPrefix
-        - .4.0/22
-    Export:
-      Name: !Sub '${AWS::StackName}-ApplicationCIDRRange'
-  PublicCIDRRange:
-    Description: This is the Application CIDR Range.
-    Value: !Join 
-      - ''
-      - - !Ref CIDRPrefix
-        - .0.0/22
-    Export:
-      Name: !Sub '${AWS::StackName}-PublicCIDRRange'
-  PublicRoutingTable:
-    Description: Public Route Table
-    Value: !Ref PublicRoutingTable
-    Export:
-      Name: !Sub '${AWS::StackName}-PublicRoutingTable'
-  PrivateRoutingTable:
-    Description: Private Route Table
-    Value: !Ref PrivateRoutingTable
-    Export:
-      Name: !Sub '${AWS::StackName}-PrivateRoutingTable'
-  NATPublicIP:
-    Description: >-
-      This is the NAT Public IP address for external whitelisting of external
-      repos and packages.
-    Value: !Ref NATGatewayIPAddress
-    Export:
-      Name: !Sub '${AWS::StackName}-NATPublicIP'
-  VPCID:
-    Description: This is the VPC you have created
-    Value: !Ref VPC
-    Export:
-      Name: !Sub '${AWS::StackName}-VPCID'
+              def write_datazone_assetdetails_to_S3(domainIdentifier, bucket_name, knowledgeBase_name):
+                  print(f"domainIdentifier: {domainIdentifier}")
+                  searchQuery =''
+                  dzc = boto3.client('datazone')
+                  s3 = boto3.resource('s3')
+                  bedrock_agent_client = boto3.client('bedrock-agent')
+                  response = dzc.search_listings(
+                  domainIdentifier=domainIdentifier,
+                  maxResults=49,
+                  searchText=searchQuery
+                  )
+                  
+                  assets_arr = []
+                  print(f'found {len(response["items"])} assets in DataZone')
+                  for asset in response['items']:
+                      print('iterate')
+                      asset_dict = {}
+                      asset_dict['id']= asset['assetListing']['entityId']
+                      asset_dict['name'] = asset['assetListing']['name']
+                      asset_dict['owningProjectId'] = asset['assetListing']['owningProjectId']
+                      
+                      list_response = dzc.get_listing(
+                        domainIdentifier=domainIdentifier,
+                        identifier=asset['assetListing']['listingId'],
+                        listingRevision=asset['assetListing']['listingRevision']
+                      )
+                      #print(f'list_response: {list_response}')
+                      asset_dict['glossaryTerms'] = list_response['item']['assetListing']['glossaryTerms']
+                      # parse json to dict
+                      forms_dict = json.loads(list_response['item']['assetListing']['forms'])
+                      asset_dict['glue_table_arn'] = f"{forms_dict['GlueTableForm']['tableArn']}"
+                      asset_dict['glue_table_name'] = f"{forms_dict['GlueTableForm']['tableName']}"
+                      asset_dict['glue_table_columns'] = f"{forms_dict['GlueTableForm']['columns']}"
+                      asset_dict['glue_table_business_columns'] = ''
+                      
+                      try:
+                          asset_dict['glue_table_business_columns'] = f"{forms_dict['ColumnBusinessMetadataForm']['columnsBusinessMetadata']}"
+                      except:
+                          
+                          print('no glue_table_business_columns')
+                      
+                      # get asset details
+                      asset_dict['asset_readme'] = ''
+                      try:
+                          print(f'trying to get asset details for: {asset["assetListing"]["entityId"]} with revision: {asset["assetListing"]["listingRevision"]}')
+                          response = dzc.get_asset(
+                              domainIdentifier=domainIdentifier,
+                              identifier=asset['assetListing']['entityId'],
+                              revision= 'latest' #asset['assetListing']['listingRevision'] 
+                          )
+                          print(f'get_asset response: {response}')
+                          for form in response['formsOutput']:
+                              print(form)
+                              if form['formName'] == 'AssetCommonDetailsForm':
+                                  asset_dict['asset_readme'] = f"{form['content']}"
+                      except dzc.exceptions.AccessDeniedException as e:
+                          print(f'no AccessDeniedException, error: {e}')
+                          
+                      except Exception as e:
+                          print(f'no asset_readme, error: {e}')
+                          
+                      assets_arr.append(asset_dict)
+                  
+                  # write asset details to S3 as text file. Once stored here, they can be indexed by Bedrock KB job
+                  print(f'write {len(assets_arr)} assets to S3')
+                  for asset in assets_arr:
+                      key = f"kb/{asset['glue_table_name']}_metadata.txt"
+                      body = str(json.dumps(asset))
+                      print(f'assets_arr iterate for bucket {bucket_name} do key {key} with body {body}')
+                      try:
+                          bucket = s3.Bucket(bucket_name)
+                          bucket.put_object(Key=key, Body=body)
+                      except Exception as e:
+                          print(f'put object failed with error: {e}')
+
+
+                  # Sync to Bedrock Knowledge Base
+                  knowledge_base_response = bedrock_agent_client.list_knowledge_bases(maxResults=10)
+                  for kb in knowledge_base_response['knowledgeBaseSummaries']:
+                      if kb['name'] == knowledgeBase_name:
+                          knowledge_base_id = kb['knowledgeBaseId'] 
+                  data_sources_response = bedrock_agent_client.list_data_sources( knowledgeBaseId=knowledge_base_id)
+                  for data_source in data_sources_response['dataSourceSummaries']:
+                      if data_source['knowledgeBaseId'] == knowledge_base_id:
+                          data_source_id = data_source['dataSourceId']
+                  ingestion_response = bedrock_agent_client.start_ingestion_job(knowledgeBaseId=knowledge_base_id,dataSourceId=data_source_id)
+                  print(f"ingestion response: {ingestion_response}")
+                  ingestion_job = ingestion_response['ingestionJob']['ingestionJobId']
+                  print(f"ingestionJobId: {ingestion_job}")
+                  status = 'IN_PROGRESS'
+                  response = {}
+                  while status == 'IN_PROGRESS':
+                      response = bedrock_agent_client.get_ingestion_job(
+                          knowledgeBaseId=knowledge_base_id,
+                          dataSourceId=data_source_id,
+                          ingestionJobId=ingestion_job
+                      )
+                    
+                      status = response['ingestionJob']['status']
+                      time.sleep(5)
+                  
+                  print(response['ingestionJob']['statistics'])
+                  # BEG REQUIRES MODEL ACCESS
+
+
+              def lambda_handler(event, context):
+                  
+                  datazone_domain_id = str(os.environ['DATAZONE_DOMAIN_ID'])
+                  s3_bucket_name = str(os.environ['BUCKET_NAME'])
+                  knowledgeBase_name = str(os.environ['KNOWLEDGEBASE_NAME'])
+                                        
+                  write_datazone_assetdetails_to_S3(datazone_domain_id, s3_bucket_name, knowledgeBase_name)
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps('synced')
+                  }
